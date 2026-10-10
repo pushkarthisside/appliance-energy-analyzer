@@ -61,10 +61,6 @@ function formatDate(value: string | null | undefined) {
     : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
 }
 
-function applianceSourceLabel(provenance: string) {
-  return provenance === "synthetic_trace" ? "Simulated trace" : "Model estimate";
-}
-
 function alertLabel(status: AnalysisResponse["alert"]["status"]) {
   const labels = {
     sent: "Notification sent",
@@ -112,30 +108,24 @@ function App() {
   const selectedSample = availableSamples.find((sample) => sample.id === sampleId);
   const amount = Number(billing.amount);
   const units = Number(billing.units);
+  const amountValid = billing.amount !== "" && Number.isFinite(amount) && amount > 0 && amount <= 10_000_000;
+  const unitsValid = billing.units !== "" && Number.isFinite(units) && units > 0 && units <= 10_000_000;
   const periodValid =
     Boolean(billing.startDate) &&
     Boolean(billing.endDate) &&
     billing.startDate <= billing.endDate;
   const billValid =
-    billing.amount !== "" &&
-    billing.units !== "" &&
-    Number.isFinite(amount) &&
-    Number.isFinite(units) &&
-    amount > 0 &&
-    units > 0 &&
-    amount <= 10_000_000 &&
-    units <= 10_000_000;
+    amountValid && unitsValid;
 
   const appliances = useMemo(
     () =>
       (analysis?.appliances ?? [])
-        .filter((appliance) => appliance.provenance !== "residual")
-        .sort((left, right) => (right.kwh_period ?? -1) - (left.kwh_period ?? -1)),
+        .sort((left, right) => (right.cost_period_inr ?? -1) - (left.cost_period_inr ?? -1)),
     [analysis],
   );
-  const maxApplianceKwh = Math.max(0, ...appliances.map((appliance) => appliance.kwh_period ?? 0));
   const selectedAppliance = appliances.find((appliance) => appliance.id === selectedApplianceId);
   const topOpportunity = analysis?.issues[0] ?? null;
+  const leadingApplianceId = appliances.find((appliance) => appliance.provenance !== "residual")?.id;
 
   function updateBilling<K extends keyof BillingDetails>(key: K, value: BillingDetails[K]) {
     setBilling((current) => ({ ...current, [key]: value }));
@@ -177,137 +167,90 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#overview" aria-label="Appliance Energy Analyzer overview">
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none">
-              <path d="M17.8 3.8 7 17h7.1l-.7 11.2L25 14.8h-7.3l.1-11Z" />
-            </svg>
-          </span>
-          <span className="brand-copy">
-            <strong>Appliance Energy</strong>
-            <small>Analyzer</small>
-          </span>
-        </a>
-
+      <header className="app-header">
+        <a className="brand" href="#overview" aria-label="Appliance Energy Analyzer overview">Appliance Energy</a>
         <nav className="primary-nav" aria-label="Dashboard sections">
-          <a className="nav-link is-active" href="#overview"><span>01</span> Overview</a>
-          <a className="nav-link" href="#appliances"><span>02</span> Appliances</a>
-          <a className="nav-link" href="#insights"><span>03</span> Insights</a>
-          <a className="nav-link" href="#history"><span>04</span> History</a>
+          <a className="nav-link" href="#overview">Overview</a>
+          <a className="nav-link" href="#appliances">Breakdown</a>
+          <a className="nav-link" href="#insights">Recommendations</a>
+          <a className="nav-link" href="#history">History</a>
         </nav>
-
-        <div className="sidebar-note">
-          <span className={`service-indicator ${health?.ready ? "is-online" : ""}`} />
-          <div>
-            <strong>{healthError ? "API unavailable" : health?.ready ? "Samples ready" : "Engine not ready"}</strong>
-            <small>{health?.ready ? "Analysis service online" : "Waiting for sample pipeline"}</small>
-          </div>
-        </div>
-        <p className="sidebar-footnote">Estimates from one meter signal. Results depend on data availability.</p>
-      </aside>
+      </header>
 
       <main className="dashboard" id="overview">
-        <header className="topbar">
-          <div className="breadcrumb">Workspace <span>/</span> Energy overview</div>
-          <div className={`status-pill ${health?.ready ? "status-pill-ready" : ""}`}>
-            <span /> {healthError ? "Connection issue" : health?.ready ? "Ready to analyze" : "Analysis unavailable"}
-          </div>
-        </header>
 
         <section className="page-heading">
           <div>
-            <p className="eyebrow">Household energy, made clearer</p>
-            <h1>Understand where your electricity goes.</h1>
-            <p className="heading-copy">
-              Review appliance estimates, costs, and possible next steps from a prepared meter sample.
-            </p>
+            <h1>Energy overview</h1>
+            <p className="heading-copy">See how your electricity use is distributed across appliances.</p>
           </div>
-          <div className="period-chip">
-            <span className="period-icon" aria-hidden="true">◷</span>
-            <span>{analysis ? `${formatDate(analysis.period.start)} – ${formatDate(analysis.period.end)}` : "21-day sample window"}</span>
-          </div>
+          {analysis && <div className="period-chip"><span>Analysis period</span><strong>{formatDate(analysis.period.start)} – {formatDate(analysis.period.end)}</strong></div>}
         </section>
 
         {(healthError || !health?.ready) && (
           <section className="readiness-banner" role="status">
-            <div className="readiness-icon" aria-hidden="true">i</div>
             <div>
-              <strong>{healthError ? "We couldn’t reach the analysis service" : "Analysis engine is getting ready"}</strong>
+              <strong>{healthError ? "Analysis service unavailable" : health ? "No prepared sample is ready" : "Checking sample availability"}</strong>
               <p>
-                {healthError ?? "Prepared samples and the analysis pipeline are not available yet. This dashboard will show results only after the API reports a ready sample."}
+                {healthError ?? (health ? "The analysis action will become available when the service has a ready sample." : "The analysis action will be available when the service responds.")}
               </p>
             </div>
-            <span className="readiness-label">No results loaded</span>
           </section>
         )}
 
         {analysis?.source.simulated && (
           <section className="simulation-banner" role="status">
-            <strong>Simulated demonstration</strong>
-            <span>This sample contains synthetic data. It is not a real household appliance prediction.</span>
+            <strong>Demonstration data</strong>
+            <span>Synthetic scenario; these are estimates, not household measurements.</span>
           </section>
         )}
 
-        <section className="metrics-grid" aria-label="Energy overview">
-          <article className="metric-card bill-metric">
-            <div className="metric-heading"><span>Bill amount entered</span><span className="metric-icon">₹</span></div>
-            <strong className="metric-value">{billing.amount ? formatCurrency(amount) : "—"}</strong>
-            <p>{billing.startDate && billing.endDate ? `${formatDate(billing.startDate)} – ${formatDate(billing.endDate)}` : "Enter your billed amount and dates"}</p>
-            {billing.units && <small>{billing.units} billed kWh</small>}
-          </article>
-          <article className="metric-card">
-            <div className="metric-heading"><span>Estimated energy</span><span className="metric-icon icon-teal">ϟ</span></div>
-            <strong className="metric-value">{formatKwh(analysis?.summary.total_kwh_period)}</strong>
-            <p>{analysis ? "For the analyzed sample window" : "Available after sample analysis"}</p>
-          </article>
-          <article className="metric-card">
-            <div className="metric-heading"><span>Estimated cost</span><span className="metric-icon icon-blue">≈</span></div>
-            <strong className="metric-value">{formatCurrency(analysis?.summary.estimated_cost_period_inr)}</strong>
-            <p>{analysis ? `Using ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)}/kWh blended rate` : "Calculated from estimates and bill inputs"}</p>
-          </article>
-          <article className="metric-card savings-metric">
-            <div className="metric-heading"><span>Possible savings</span><span className="metric-icon icon-gold">↗</span></div>
-            <strong className="metric-value savings-value">
-              {topOpportunity
-                ? `${formatCurrency(topOpportunity.savings.inr_per_month.low)}–${formatCurrency(topOpportunity.savings.inr_per_month.high)}`
-                : "—"}
-            </strong>
-            <p>{topOpportunity ? "Monthly range for the top issue, not guaranteed" : "Shown only when supported by analysis"}</p>
-          </article>
+        <section className="summary-band" aria-label="Analysis summary">
+          <div className="energy-total">
+            <span className="summary-label">Estimated energy</span>
+            <strong>{analysis ? formatKwh(analysis.summary.total_kwh_period) : "—"}</strong>
+            <span className="summary-context">{analysis ? `${analysis.period.days}-day sample analysis` : "Run an analysis to see the sample total"}</span>
+          </div>
+          <div className="summary-support">
+            <article className="summary-item">
+              <span className="summary-label">Bill amount</span>
+              <strong>{billing.amount ? formatCurrency(amount) : "—"}</strong>
+              <small>{billing.units ? `${billing.units} kWh billed` : "Amount and units from your bill"}</small>
+            </article>
+            <article className="summary-item">
+              <span className="summary-label">Estimated cost</span>
+              <strong>{formatCurrency(analysis?.summary.estimated_cost_period_inr)}</strong>
+              <small>{analysis ? `Approx. ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)} per kWh` : "Based on the bill's blended rate"}</small>
+            </article>
+            <article className="summary-item">
+              <span className="summary-label">Potential monthly savings</span>
+              <strong>{topOpportunity ? `${formatCurrency(topOpportunity.savings.inr_per_month.low)}–${formatCurrency(topOpportunity.savings.inr_per_month.high)}` : "—"}</strong>
+              <small>{topOpportunity ? "Estimate if use returns to baseline" : "Shown when recommendations support it"}</small>
+            </article>
+          </div>
         </section>
 
         <div className="content-grid">
           <section className="panel bill-panel" aria-labelledby="bill-title">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Analysis setup</p>
-                <h2 id="bill-title">Your bill & tariff</h2>
-              </div>
-              <span className="panel-step">01</span>
-            </div>
+            <div className="panel-heading"><h2 id="bill-title">Analysis inputs</h2></div>
 
             <form onSubmit={analyzeSample} className="bill-form">
               <fieldset>
-                <legend>Choose a prepared sample</legend>
+                <legend>Sample</legend>
                 <div className="sample-options">
-                  {(["typical_period", "simulated_scenario"] as const).map((id) => {
-                    const status = health?.samples.find((sample) => sample.id === id);
-                    const available = status?.state === "ready";
+                  {(["typical_period", "simulated_scenario"] as const).filter((id) => health?.samples.some((sample) => sample.id === id && sample.state === "ready")).map((id) => {
                     return (
-                      <label className={`sample-option ${sampleId === id ? "selected" : ""} ${!available ? "unavailable" : ""}`} key={id}>
+                      <label className={`sample-option ${sampleId === id ? "selected" : ""}`} key={id}>
                         <input
                           type="radio"
                           name="sample"
                           value={id}
                           checked={sampleId === id}
-                          disabled={!available || submitting}
+                          disabled={submitting}
                           onChange={() => setSampleId(id)}
                         />
                         <span className="sample-option-copy">
-                          <strong>{sampleTitles[id]}</strong>
-                          <small>{id === "simulated_scenario" ? "Synthetic demonstration" : "Real-data sample, when a model passes evaluation"}</small>
-                          <em>{status ? (available ? "Available" : "Not ready") : health ? "Not available" : "Checking availability"}</em>
+                          <strong>{id === "simulated_scenario" ? "Demonstration sample" : sampleTitles[id]}</strong>
                         </span>
                       </label>
                     );
@@ -315,7 +258,8 @@ function App() {
                 </div>
               </fieldset>
 
-              <div className="form-section-label">Billed details</div>
+              <div className="form-section-label">Bill details</div>
+              <p className="input-hint">Enter the amount and units shown on your bill. Costs use the blended rate (amount ÷ units).</p>
               <div className="form-two-col">
                 <label className="field-label">
                   Bill amount <span>₹</span>
@@ -354,6 +298,10 @@ function App() {
                   <input type="date" value={billing.endDate} min={billing.startDate || undefined} onChange={(event) => updateBilling("endDate", event.target.value)} required />
                 </label>
               </div>
+              {billing.startDate && billing.endDate && <p className="input-hint period-hint">Billing period: {formatDate(billing.startDate)} – {formatDate(billing.endDate)}. Analysis uses the separate sample period shown above.</p>}
+
+              {billing.amount && !amountValid && <p className="validation-message" role="alert">Enter a bill amount greater than zero, up to ₹10,000,000.</p>}
+              {billing.units && !unitsValid && <p className="validation-message" role="alert">Enter billed units greater than zero, up to 10,000,000 kWh.</p>}
 
               <label className="field-label tariff-field">
                 Tariff structure
@@ -371,58 +319,46 @@ function App() {
               )}
               {analysisError && <p className="form-error" role="alert">{analysisError}</p>}
 
-              <button className="primary-button" type="submit" disabled={!selectedSample || !billValid || !periodValid || submitting}>
-                {submitting ? "Analyzing sample…" : "Analyze selected sample"}
-                <span aria-hidden="true">→</span>
+              <button className="primary-button" type="submit" disabled={!selectedSample || !billValid || !periodValid || submitting || Boolean(healthError) || !health?.ready}>
+                {submitting ? "Analyzing…" : "Run analysis"}
               </button>
-              {!selectedSample && <p className="form-footnote">Analysis is disabled until a prepared sample is ready.</p>}
+              {!selectedSample && <p className="form-footnote">No prepared sample is currently available.</p>}
             </form>
           </section>
 
           <section className="panel breakdown-panel" id="appliances" aria-labelledby="appliances-title">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Estimated from aggregate meter data</p>
-                <h2 id="appliances-title">Appliance breakdown</h2>
+              <div className="panel-heading breakdown-heading">
+                <div><h2 id="appliances-title">Where the energy goes</h2><p>Estimated share of total sample energy</p></div>
+                {analysis && <span className="breakdown-total">{formatKwh(analysis.summary.total_kwh_period)} total</span>}
               </div>
-              {analysis && <span className="appliance-count">{appliances.length} monitored</span>}
-            </div>
             {appliances.length > 0 ? (
-              <div className="appliance-list">
-                {appliances.map((appliance, index) => {
-                  const barWidth = maxApplianceKwh > 0 && appliance.kwh_period != null
-                    ? Math.max(2, (appliance.kwh_period / maxApplianceKwh) * 100)
-                    : 0;
-                  return (
-                    <button className="appliance-row" key={appliance.id} onClick={() => setSelectedApplianceId(appliance.id)}>
-                      <span className="appliance-rank">{String(index + 1).padStart(2, "0")}</span>
-                      <span className="appliance-main">
-                        <span className="appliance-name-line">
-                          <strong>{appliance.name}</strong>
-                          <small className={appliance.provenance === "synthetic_trace" ? "source-tag simulated-tag" : "source-tag"}>
-                            {applianceSourceLabel(appliance.provenance)}
-                          </small>
-                        </span>
-                        <span className="energy-track"><span style={{ width: `${barWidth}%` }} /></span>
-                      </span>
-                      <span className="appliance-energy">{formatKwh(appliance.kwh_period)}</span>
-                      <span className="appliance-cost">{formatCurrency(appliance.cost_period_inr)}</span>
-                      <span className="row-arrow" aria-hidden="true">↗</span>
-                    </button>
-                  );
-                })}
+              <div className="appliance-breakdown">
+                {appliances.map((appliance) => (
+                  <article className={`appliance-row ${appliance.id === leadingApplianceId ? "is-leading" : ""} ${appliance.provenance === "residual" ? "is-residual" : ""}`} key={appliance.id}>
+                    <div className="appliance-row-top">
+                      {appliance.provenance === "residual"
+                        ? <strong className="appliance-name">{appliance.name}</strong>
+                        : <button className="appliance-link" onClick={() => setSelectedApplianceId(appliance.id)}>{appliance.name}</button>}
+                      <span className="appliance-share">{appliance.share_pct == null ? "—" : `${appliance.share_pct.toFixed(1)}%`}</span>
+                    </div>
+                    <div className="share-track" role="img" aria-label={`${appliance.share_pct == null ? "Unknown share" : `${appliance.share_pct.toFixed(1)} percent`} of estimated energy`}>
+                      <span style={{ width: `${Math.max(0, Math.min(100, appliance.share_pct ?? 0))}%` }} />
+                    </div>
+                    <div className="appliance-row-values">
+                      <span><small>Energy</small><strong>{formatKwh(appliance.kwh_period)}</strong></span>
+                      <span><small>Estimated cost</small><strong>{formatCurrency(appliance.cost_period_inr)}</strong></span>
+                      <span><small>Coverage</small><strong>{appliance.coverage_pct == null ? "—" : `${appliance.coverage_pct.toFixed(1)}%`}</strong></span>
+                    </div>
+                  </article>
+                ))}
               </div>
             ) : (
               <div className="empty-state breakdown-empty">
-                <span className="empty-glyph" aria-hidden="true">⌁</span>
                 <strong>No appliance estimates yet</strong>
-                <p>When a sample and analysis pipeline are ready, supported appliances will appear here ranked by estimated energy use.</p>
-                <small>Appliance-level ground truth is not available from the aggregate meter alone.</small>
+                <p>Your sample breakdown will appear here after analysis.</p>
               </div>
             )}
-            <div className="panel-footnote">
-              <span>ⓘ</span> Appliance energy and cost are estimates, not independent meter readings.
-            </div>
+            {analysis && <div className="panel-footnote">“Other” is included in the returned total; its appliance-level split is unavailable.</div>}
           </section>
         </div>
 
@@ -430,8 +366,7 @@ function App() {
           <section className="panel insights-panel" id="insights" aria-labelledby="insights-title">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Explainable next steps</p>
-                <h2 id="insights-title">Insights & alerts</h2>
+                <h2 id="insights-title">Recommendations</h2>
               </div>
               {analysis && <span className="alert-status">{alertLabel(analysis.alert.status)}</span>}
             </div>
@@ -439,20 +374,13 @@ function App() {
               <div className="insight-list">
                 {analysis.issues.map((issue) => (
                   <article className="insight-item" key={issue.appliance_id}>
-                    <div className="insight-index">{String(issue.rank).padStart(2, "0")}</div>
                     <div className="insight-copy">
-                      <div className="insight-title-line">
-                        <h3>{issue.appliance_name}</h3>
-                        <span className={issue.basis === "synthetic_trace" ? "source-tag simulated-tag" : "source-tag"}>
-                          {issue.basis === "synthetic_trace" ? "Simulated" : "Model-based"}
-                        </span>
+                      <div className="recommendation-topline">
+                        <div><h3>{issue.appliance_name}</h3><p>{issue.driver_text ?? "The analysis identified an eligible change, but could not determine a usage driver."}</p></div>
+                        <div className="recommendation-savings"><small>Potential / month</small><strong>{formatCurrency(issue.savings.inr_per_month.low)}–{formatCurrency(issue.savings.inr_per_month.high)}</strong></div>
                       </div>
-                      <p>{issue.driver_text ?? "The analysis identified an eligible change, but could not determine a usage driver."}</p>
                       <strong className="recommendation">{issue.recommendation.text}</strong>
-                      <div className="savings-assumption">
-                        <span>{issue.savings.label}</span>
-                        <strong>{formatCurrency(issue.savings.inr_per_month.low)}–{formatCurrency(issue.savings.inr_per_month.high)} / month</strong>
-                      </div>
+                      <small className="savings-label">{issue.savings.label}; an estimate, not a guaranteed saving.</small>
                       {issue.caveats.map((caveat) => <small className="caveat" key={caveat}>{caveat}</small>)}
                     </div>
                   </article>
@@ -461,24 +389,22 @@ function App() {
             ) : (
               <div className="empty-state insights-empty">
                 <span className="empty-glyph" aria-hidden="true">✳</span>
-                <strong>{analysis ? "No eligible recommendations" : "Insights appear after analysis"}</strong>
-                <p>{analysis ? "No unusual-use recommendation was returned for this sample." : "Recommendations and alert status will be shown only when supported by an API analysis result."}</p>
+                <strong>{analysis ? "No unusual use found." : "Recommendations appear after analysis"}</strong>
+                {!analysis && <p>Run an analysis to see actions tied to this sample’s results.</p>}
               </div>
             )}
-            <p className="assumption-note">Possible savings are hypothetical estimates based on the recent-use baseline. They are not guaranteed or measured.</p>
+            {analysis?.issues.length ? <p className="assumption-note">Potential savings are estimates, not guaranteed outcomes.</p> : null}
           </section>
 
           <section className="panel history-panel" id="history" aria-labelledby="history-title">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Monthly comparison</p>
                 <h2 id="history-title">History</h2>
               </div>
             </div>
             <div className="empty-state history-empty">
-              <span className="history-symbol" aria-hidden="true">↻</span>
-              <strong>No saved months</strong>
-              <p>Analyses and bills are not stored in this MVP. Monthly comparisons will appear only when supported historical data is available.</p>
+              <strong>No saved analyses</strong>
+              <p>Analyses are not stored.</p>
             </div>
           </section>
         </div>
@@ -486,7 +412,6 @@ function App() {
         {analysis && (
           <footer className="evidence-footer">
             <span>Analysis period: {formatDate(analysis.period.start)} – {formatDate(analysis.period.end)} ({analysis.period.days} days)</span>
-            <span>Evidence: {analysis.source.evidence_level ?? "not available"}</span>
             <span>Coverage: {analysis.period.coverage_pct.toFixed(1)}%</span>
           </footer>
         )}
@@ -502,11 +427,7 @@ function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <button className="drawer-close" type="button" aria-label="Close appliance details" onClick={() => setSelectedApplianceId(null)}>×</button>
-            <p className="eyebrow">Appliance estimate</p>
             <h2 id="detail-title">{selectedAppliance.name}</h2>
-            <span className={selectedAppliance.provenance === "synthetic_trace" ? "source-tag simulated-tag" : "source-tag"}>
-              {applianceSourceLabel(selectedAppliance.provenance)}
-            </span>
             <div className="drawer-metrics">
               <div><small>Energy, analyzed period</small><strong>{formatKwh(selectedAppliance.kwh_period)}</strong></div>
               <div><small>Estimated cost</small><strong>{formatCurrency(selectedAppliance.cost_period_inr)}</strong></div>
@@ -527,7 +448,7 @@ function App() {
               ))}
             </div>
             {selectedAppliance.status_reason && <p className="detail-reason">Comparison unavailable: {selectedAppliance.status_reason.replaceAll("_", " ")}.</p>}
-            <p className="ground-truth-note">These figures are estimates from aggregate meter data. Independent appliance-level ground truth is unavailable in this result. A confidence interval is not provided by the current API contract.</p>
+            <p className="ground-truth-note">Coverage indicates how much valid data was available for this appliance in the sample period.</p>
           </section>
         </div>
       )}
