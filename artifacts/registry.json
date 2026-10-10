@@ -1,0 +1,121 @@
+{
+  "registry_version": 1,
+  "interval_seconds": 60,
+  "appliances": [
+    {
+      "id": "air_conditioner",
+      "name": "Air conditioner",
+      "class": "air_conditioner",
+      "provenance": "real_model",
+      "status": "candidate",
+      "adapter": "onnx_seq2point",
+      "model": {
+        "version": null,
+        "path": null,
+        "window_minutes": 99,
+        "norm": {
+          "mains_mean": null,
+          "mains_std": null,
+          "app_mean": null,
+          "app_std": null
+        }
+      },
+      "on_threshold_w": null,
+      "driver_analysis": true,
+      "weather_sensitive": true,
+      "energy_uncertainty_pct": null,
+      "uncertainty_source": "validation_weeks",
+      "min_excess_kwh_week": null,
+      "action_id": "reduce_runtime",
+      "evaluation_ref": "real.air_conditioner"
+    },
+    {
+      "id": "fridge",
+      "name": "Refrigerator",
+      "class": "fridge",
+      "provenance": "real_model",
+      "status": "candidate",
+      "adapter": "onnx_seq2point",
+      "model": {
+        "version": null,
+        "path": null,
+        "window_minutes": 99,
+        "norm": {
+          "mains_mean": null,
+          "mains_std": null,
+          "app_mean": null,
+          "app_std": null
+        }
+      },
+      "on_threshold_w": null,
+      "driver_analysis": false,
+      "weather_sensitive": false,
+      "energy_uncertainty_pct": null,
+      "uncertainty_source": "validation_weeks",
+      "min_excess_kwh_week": null,
+      "action_id": "reduce_runtime",
+      "evaluation_ref": "real.fridge"
+    },
+    {
+      "id": "washing_machine",
+      "name": "Washing machine",
+      "class": "washing_machine",
+      "provenance": "real_model",
+      "status": "candidate",
+      "adapter": "onnx_seq2point",
+      "model": {
+        "version": null,
+        "path": null,
+        "window_minutes": 99,
+        "norm": {
+          "mains_mean": null,
+          "mains_std": null,
+          "app_mean": null,
+          "app_std": null
+        }
+      },
+      "on_threshold_w": null,
+      "driver_analysis": true,
+      "weather_sensitive": false,
+      "energy_uncertainty_pct": null,
+      "uncertainty_source": "validation_weeks",
+      "min_excess_kwh_week": null,
+      "action_id": "reduce_runtime",
+      "evaluation_ref": "real.washing_machine"
+    },
+    {
+      "id": "air_conditioner_sim",
+      "name": "Air conditioner",
+      "class": "air_conditioner",
+      "provenance": "synthetic_trace",
+      "status": "demo",
+      "adapter": "trace",
+      "model": null,
+      "on_threshold_w": 150.0,
+      "driver_analysis": true,
+      "weather_sensitive": true,
+      "energy_uncertainty_pct": 15.0,
+      "uncertainty_source": "declared",
+      "min_excess_kwh_week": 1.0,
+      "action_id": "reduce_runtime",
+      "evaluation_ref": null
+    },
+    {
+      "id": "water_heater_sim",
+      "name": "Water heater",
+      "class": "water_heater",
+      "provenance": "synthetic_trace",
+      "status": "demo",
+      "adapter": "trace",
+      "model": null,
+      "on_threshold_w": 200.0,
+      "driver_analysis": true,
+      "weather_sensitive": false,
+      "energy_uncertainty_pct": 15.0,
+      "uncertainty_source": "declared",
+      "min_excess_kwh_week": 1.0,
+      "action_id": "reduce_runtime",
+      "evaluation_ref": null
+    }
+  ]
+}

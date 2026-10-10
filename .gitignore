@@ -5,3 +5,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/.npm-cache/
+ml/data/
+ml/out/
+**/__pycache__/
+*.onnx
+*.h5

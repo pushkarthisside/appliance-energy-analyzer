@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "source": "ARCHITECTURE.md §12.3",
+  "frozen_on": "2026-10-10",
+  "frozen_before_results": true,
+  "note": "Frozen design parameters chosen before any evaluation result exists. Never change these to make a candidate pass; criteria_sha256 of this file is recorded in evaluation.json.",
+  "criteria": [
+    {
+      "id": 1,
+      "description": "Median weekly energy error <= 30 % and worst week <= 50 %",
+      "metric": "weekly_energy_error_pct",
+      "median_max_pct": 30,
+      "worst_max_pct": 50
+    },
+    {
+      "id": 2,
+      "description": "Model MAE <= 0.9 x naive MAE (at least 10 % better)",
+      "metric": "mae_w",
+      "max_ratio_to_naive": 0.9
+    },
+    {
+      "id": 3,
+      "description": "Model median weekly energy error <= naive median weekly energy error",
+      "metric": "weekly_energy_error_pct.median",
+      "must_not_exceed": "naive"
+    },
+    {
+      "id": 4,
+      "description": "If driver_analysis is true: model ON/OFF F1 > naive ON/OFF F1",
+      "metric": "onoff_f1",
+      "must_exceed": "naive",
+      "applies_when": "driver_analysis"
+    },
+    {
+      "id": 5,
+      "description": "Median actual weekly energy in the evaluation weeks >= MIN_BASELINE_KWH_WEEK",
+      "metric": "actual_weekly_kwh.median",
+      "min_kwh_week": 0.5
+    },
+    {
+      "id": 6,
+      "description": "Every evaluation week has >= 80 % coverage; at least 3 weeks (test) or 2 weeks (development_only)",
+      "metric": "coverage_pct",
+      "min_week_coverage_pct": 80,
+      "min_weeks_independent_test": 3,
+      "min_weeks_development_only": 2
+    }
+  ],
+  "undefined_metric_rule": "A required metric that cannot be computed or is not finite is stored as null, its criterion fails with reason metric_undefined:<metric>, and the appliance is no_go."
+}

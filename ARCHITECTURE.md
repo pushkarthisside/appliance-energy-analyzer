@@ -499,6 +499,18 @@ Per minute where `mains_for_models` is valid:
 
 The displayed aggregate is `mains_for_models + Σ synthetic`. Minutes where `aggregate` is missing are missing for everything.
 
+### 8.4 Implemented interface (code as of 2026-10-10)
+
+| Step | Call | Behaviour |
+|---|---|---|
+| Load sample | `app.ingest.bundle.load_bundle(sample_dir) -> Bundle` | Validates manifest (§6.3), 1-minute CSV grid (§6.2) and `aggregate_sha256`; raises `BundleError` |
+| Load registry | `app.nilm.registry.load_registry(path) -> Registry` | Unusable file raises `RegistryError` (`not_ready`); an invalid entry goes to `entry_errors` and never runs |
+| Startup, per sample | `app.pipeline.run_pipeline(bundle, registry, evidence_level, real_adapters) -> PipelineResult` | Bill-independent; computed once and cached by `app.runtime.build_runtime` |
+| Per request | `app.pipeline.apply_bill(result, bill_amount_inr, bill_units_kwh, actions, emissions=None, alert_status=None) -> AnalysisResponse` | Invalid bill raises `ValueError("invalid_bill")`, mapped to HTTP 422 |
+| Real models | `app.nilm.adapters.onnx_seq2point.OnnxSeq2PointAdapter` | Loaded only for `go` entries; never invoked on a `fully_synthetic` bundle (callers may pass the same adapters to every sample) |
+
+Local mode: with `AEA_S3_BUCKET` unset, startup reads `$AEA_DATA_DIR/current/`, or `$AEA_DATA_DIR` itself when it contains `registry.json` (for example `AEA_DATA_DIR=../artifacts` from `backend/`), and reports `s3_sync.state = failed_using_cache` (health `degraded`) because no sync ran. Unmatched `/api/*` paths return HTTP 404 with error code `not_found` (API-04). `generated_at` and `analysis_id` differ between otherwise identical responses (TS-I-03).
+
 ---
 
 ## 9. Analytics (single definition)
@@ -855,6 +867,10 @@ The injection size rule and outputs are recorded and **never re-tuned** after se
 ### 12.8 Evaluation tab content
 
 Evidence-level statement; for each real appliance (GO and NO-GO): decision, failed criteria, model-vs-naive table, weekly predicted/actual/naive kWh chart, example-day overlay; scenario-check and unmodified-window callouts filled from the file; a line that simulated demonstration appliances are not evaluated against real data. If `real` is empty, the tab states that no real-data appliance model has been validated.
+
+### 12.9 Synthetic-data prototype model (not served)
+
+`ml/prototype_synthetic/train.py` trains a sequence-to-point network (scikit-learn `MLPRegressor`, exported to ONNX) for an air conditioner on randomized simulated households, and evaluates it on held-out simulated households through the serving adapter (§8.1) against the naive baseline. Results are written to `ml/prototype_synthetic/report.json`. The prototype has no registry entry, is never served, and its metrics never enter `evaluation.json`, the UI, or any accuracy claim (§13): it shows that the training, export and inference path works, not how a model performs in real homes. Real models still require the iAWE pipeline (§12.1-§12.6).
 
 ---
 

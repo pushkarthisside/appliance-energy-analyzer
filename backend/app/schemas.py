@@ -39,6 +39,25 @@ class HealthResponse(BaseModel):
     upload_enabled: bool
 
 
+class ConfigSample(BaseModel):
+    id: Literal["typical_period", "simulated_scenario"]
+    title: str
+    description: str
+    simulated: bool
+    available: bool
+
+
+class ConfigResponse(BaseModel):
+    app_version: str
+    window_days: int
+    upload_enabled: bool
+    alerts_enabled: bool
+    max_upload_mb: int
+    evidence_level: Literal["independent_test", "development_only", "none"]
+    emissions_available: bool
+    samples: list[ConfigSample]
+
+
 class BillInput(BaseModel):
     amount_inr: float
     units_kwh: float

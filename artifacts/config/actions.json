@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "savings_label": "Possible savings if use returns to its recent level",
+  "driver_texts": {
+    "longer_operating_time": "The estimated increase is associated with longer operating time.",
+    "higher_power_when_on": "The estimated increase is associated with higher power while running.",
+    "unclear": "The estimates do not point to a single usage pattern."
+  },
+  "caveats": {
+    "general": "Compared only with the preceding two weeks. Weather, occupancy and holidays are not adjusted for.",
+    "weather_sensitive": "This appliance's use often varies with the weather, so a change can be seasonal."
+  },
+  "actions": {
+    "reduce_runtime": "Review the schedule and use timers or switch it off when not needed."
+  }
+}

@@ -1,0 +1,4 @@
+# Sample bundles are validated by SHA-256 and must be byte-identical on every OS.
+# Never convert their line endings (a CRLF checkout on Windows would break the hashes).
+artifacts/** -text
+ml/synthetic/scenarios/*.yaml text eol=lf

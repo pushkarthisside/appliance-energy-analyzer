@@ -264,7 +264,7 @@ function App() {
           <article className="metric-card">
             <div className="metric-heading"><span>Estimated cost</span><span className="metric-icon icon-blue">≈</span></div>
             <strong className="metric-value">{formatCurrency(analysis?.summary.estimated_cost_period_inr)}</strong>
-            <p>{analysis ? `Using ${formatCurrency(analysis.cost.effective_rate_inr_per_kwh)}/kWh blended rate` : "Calculated from estimates and bill inputs"}</p>
+            <p>{analysis ? `Using ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)}/kWh blended rate` : "Calculated from estimates and bill inputs"}</p>
           </article>
           <article className="metric-card savings-metric">
             <div className="metric-heading"><span>Possible savings</span><span className="metric-icon icon-gold">↗</span></div>
@@ -307,7 +307,7 @@ function App() {
                         <span className="sample-option-copy">
                           <strong>{sampleTitles[id]}</strong>
                           <small>{id === "simulated_scenario" ? "Synthetic demonstration" : "Real-data sample, when a model passes evaluation"}</small>
-                          <em>{status ? (available ? "Available" : "Not ready") : "Checking availability"}</em>
+                          <em>{status ? (available ? "Available" : "Not ready") : health ? "Not available" : "Checking availability"}</em>
                         </span>
                       </label>
                     );

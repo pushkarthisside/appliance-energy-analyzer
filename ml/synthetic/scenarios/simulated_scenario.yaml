@@ -1,0 +1,60 @@
+# Simulated demonstration scenario (ARCHITECTURE.md §10.3).
+# Everything here is constructed data with known ground truth. It is NOT a measurement
+# of any household and NOT evidence of model accuracy.
+#
+# Changing any value changes config_sha256 and the generated traces; rebuild with
+#   python ml/build_fallback.py
+scenario_id: simulated_scenario
+window:
+  start: "2026-04-06T00:00:00+05:30"   # local midnight; constructed date, not a recording
+  days: 21
+
+# Unitemized household load for the fully synthetic fallback (§10.2). Not an appliance.
+background:
+  seed: 20261001
+  base_w: 180
+  noise_std_w: 25
+  daily_blocks:
+    - { start: "07:00", duration_minutes: 120, power_w: 200 }
+    - { start: "19:00", duration_minutes: 240, power_w: 350 }
+
+appliances:
+  - id: air_conditioner_sim
+    name: Air conditioner
+    class: air_conditioner
+    seed: 20261002
+    power_w: 1400
+    noise_std_w: 60
+    on_windows:
+      - { start: "13:00", duration_minutes: 240 }
+      - { start: "22:00", duration_minutes: 120 }
+    # Current-week change: runs longer each day -> expected driver longer_operating_time.
+    current_week_change: { extra_minutes_per_day: 150 }
+    expected_status: unusual
+    registry:
+      on_threshold_w: 150.0
+      driver_analysis: true
+      weather_sensitive: true
+      energy_uncertainty_pct: 15.0   # declared design parameter, not a measured error
+      min_excess_kwh_week: 1.0
+      action_id: reduce_runtime
+
+  - id: water_heater_sim
+    name: Water heater
+    class: water_heater
+    seed: 20261003
+    power_w: 2000
+    noise_std_w: 50
+    on_windows:
+      - { start: "06:30", duration_minutes: 45 }
+      - { start: "20:00", duration_minutes: 30 }
+    # Current-week change: same hours, higher power -> expected driver higher_power_when_on.
+    current_week_change: { power_multiplier: 1.4 }
+    expected_status: unusual
+    registry:
+      on_threshold_w: 200.0
+      driver_analysis: true
+      weather_sensitive: false
+      energy_uncertainty_pct: 15.0
+      min_excess_kwh_week: 1.0
+      action_id: reduce_runtime

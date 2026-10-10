@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-10T13:51:56Z",
+  "code_version": "26986db39693c2dff2f48fafcc9bf2e4786bef56",
+  "criteria_sha256": "3f24cece3b7cc8753543cdb5010ee26edcc74c826e701504e52f57e36b4b54e4",
+  "dataset": {
+    "name": "iAWE",
+    "audit_ref": null
+  },
+  "evidence_level": "none",
+  "no_evaluation_reason": "The iAWE data audit, chronological split and real-model training have not been run yet, so no real appliance model has been evaluated.",
+  "splits": {
+    "gap_days": 1,
+    "gap_dates": [],
+    "train": null,
+    "validation": null,
+    "test": null
+  },
+  "real": {},
+  "scenario_checks": [],
+  "unmodified_window_check": {
+    "go_appliances_checked": 0,
+    "unusual_flags": 0
+  },
+  "synthetic": {
+    "pipeline_checks": [
+      {
+        "sample_id": "simulated_scenario",
+        "appliance_id": "air_conditioner_sim",
+        "expected_status": "unusual",
+        "observed_status": "unusual"
+      },
+      {
+        "sample_id": "simulated_scenario",
+        "appliance_id": "water_heater_sim",
+        "expected_status": "unusual",
+        "observed_status": "unusual"
+      }
+    ]
+  }
+}

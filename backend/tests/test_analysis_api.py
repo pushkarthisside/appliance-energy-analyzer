@@ -6,7 +6,7 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_analysis_request_reports_not_ready_without_engine_or_samples() -> None:
+def test_analysis_request_reports_not_ready_before_startup() -> None:
     response = client.post(
         "/api/analyze/sample",
         json={
@@ -19,7 +19,7 @@ def test_analysis_request_reports_not_ready_without_engine_or_samples() -> None:
     assert response.json() == {
         "error": {
             "code": "not_ready",
-            "message": "Sample analysis is unavailable until the pipeline is integrated",
+            "message": "The analysis service is still starting",
             "details": None,
         }
     }

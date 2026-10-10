@@ -91,31 +91,32 @@ This phase must produce a usable fallback without depending on a passing real ap
   - Commit `ml/go_criteria.json` using the criteria in `ARCHITECTURE.md` §12.3.
   - Freeze and record the criteria before inspecting final evaluation results; do not tune thresholds afterward to obtain a pass.
   - Verify that undefined required metrics fail the relevant criterion and are recorded as `null`, not zero.
+  - Status 2026-10-10: `ml/go_criteria.json` committed and frozen before any result. The executable gate in `ml/evaluate.py` is not implemented yet.
 
-- [ ] **T-104 — Implement shared preprocessing**
+- [x] **T-104 — Implement shared preprocessing**
   - Implement or verify the minute grid, timestamp handling, invalid-value handling, and coverage rules.
   - Do not interpolate or impute missing minutes.
   - Ensure training, evaluation, and serving use the same preprocessing implementation.
 
-- [ ] **T-105 — Implement postprocessing**
+- [x] **T-105 — Implement postprocessing**
   - Clip real-model estimates to the valid aggregate signal.
   - Apply proportional scaling when estimates exceed the available signal.
   - Calculate the non-negative residual category `other`.
   - Preserve missing values for each appliance's own statistics.
 
-- [ ] **T-106 — Implement deterministic analytics**
+- [x] **T-106 — Implement deterministic analytics**
   - Implement or verify weekly statistics, baseline calculations, unusual-usage flags, drivers, cost attribution, possible-savings ranges, and issue ranking.
   - Follow the exact formulas and constants in `ARCHITECTURE.md` §9.
   - Ensure `insufficient_data` produces no verdict, driver, issue, or savings.
   - Ensure `other` is never flagged or assigned a driver or savings.
 
-- [ ] **T-107 — Implement synthetic appliance traces**
+- [x] **T-107 — Implement synthetic appliance traces**
   - Implement or verify `ml/synthetic/generate.py` and the scenario YAML configuration.
   - Use fixed seeds and deterministic generation.
   - Ensure regeneration produces byte-identical traces.
   - Generate at least one synthetic appliance for the simulated scenario.
 
-- [ ] **T-108 — Implement synthetic background fallback**
+- [x] **T-108 — Implement synthetic background fallback**
   - Implement or verify the deterministic background generator for the fully synthetic fallback.
   - Record the generator, configuration hash, and seed in the manifest.
   - Treat background load as unitemized aggregate load, not as a monitored appliance.
@@ -128,6 +129,7 @@ This phase must produce a usable fallback without depending on a passing real ap
   - Record actual provenance, dates, hashes, scenario configuration, and expected synthetic status.
   - Never use training days as the sample base.
   - Upload the fallback artifact set to S3 when ready.
+  - Status 2026-10-10: `simulated_scenario` (fully synthetic fallback) built by `ml/build_fallback.py`; `typical_period` not built (no `go` model). Not yet uploaded to S3.
 
 **Phase completion gate:**
 
@@ -146,12 +148,12 @@ This phase must produce a usable fallback without depending on a passing real ap
 
 Start with the synthetic fallback. Do not wait for model training.
 
-- [ ] **T-201 — Implement API schemas and errors**
+- [x] **T-201 — Implement API schemas and errors**
   - Implement or verify `backend/app/schemas.py` and `backend/app/errors.py`.
   - Match the frozen request, response, and error contracts.
   - Ensure unavailable values are represented as `null` where specified.
 
-- [ ] **T-202 — Implement artifact storage and startup**
+- [x] **T-202 — Implement artifact storage and startup**
   - Implement or verify S3 synchronization and local cache handling.
   - Validate artifacts before swapping the cache into service.
   - Support the documented fallback when S3 synchronization fails.
@@ -159,7 +161,7 @@ Start with the synthetic fallback. Do not wait for model training.
   - Allow synthetic-trace entries with status `demo` without loading a model.
   - Precompute valid samples and expose their availability accurately.
 
-- [ ] **T-203 — Implement the FastAPI endpoints**
+- [x] **T-203 — Implement the FastAPI endpoints**
   - Implement or verify:
     - `GET /api/health`
     - `GET /api/config`
@@ -168,7 +170,7 @@ Start with the synthetic fallback. Do not wait for model training.
   - Implement the upload endpoint only as P1 and keep it disabled by default.
   - Follow the response schemas and error codes in `ARCHITECTURE.md` §11.
 
-- [ ] **T-204 — Implement the analysis pipeline**
+- [x] **T-204 — Implement the analysis pipeline**
   - Connect sample loading, aggregate preprocessing, trace adapters, real-model adapters, postprocessing, and analytics.
   - Apply bill inputs to the cached bill-independent results.
   - Keep analysis results in memory only for the request; do not add persistent result storage.
@@ -246,6 +248,7 @@ This phase begins once the deterministic pipeline and fallback artifacts are ava
   - Implement or verify the approved adapter contract and ONNX export.
   - Use the frozen sequence-to-point window and normalization rules.
   - Verify the CPU inference path.
+  - Status 2026-10-10: `app/nilm/adapters/onnx_seq2point.py` implemented and tested; no real model exported yet. A synthetic-data prototype exists (ARCH §12.9), not served.
 
 - [ ] **T-404 — Evaluate each candidate**
   - Run the frozen evaluation gate.
@@ -302,6 +305,7 @@ This phase begins once the deterministic pipeline and fallback artifacts are ava
   - Enable SNS only if the complete path can be tested before the demo.
   - Configure the topic and confirmed email subscription, then verify the end-to-end application notification path, message wording, cooldown, and on-screen status.
   - Otherwise keep alerts disabled and omit email from the demo.
+  - Status 2026-10-10: `app/alerts.py` implemented (cooldown, 3 s timeout, failure never breaks analysis) and tested with a fake SNS client; real SNS not configured, alerts stay disabled.
 
 **Completion gate:** The deployed application follows the frozen contracts, tests have been run and recorded, and any failures or limitations are explicitly documented.
 

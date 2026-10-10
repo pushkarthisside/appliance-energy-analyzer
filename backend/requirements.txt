@@ -1,2 +1,6 @@
 fastapi
 uvicorn
+numpy
+pandas
+onnxruntime
+boto3

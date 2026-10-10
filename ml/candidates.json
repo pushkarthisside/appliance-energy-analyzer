@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "note": "Appliance classes to attempt as real models. Filtered by the iAWE data audit (T-101) to classes with usable sub-metered data. Listing a class here does not mean it is supported; only a go decision under ml/go_criteria.json does.",
+  "candidates": [
+    {
+      "id": "air_conditioner",
+      "name": "Air conditioner",
+      "class": "air_conditioner",
+      "driver_analysis": true,
+      "weather_sensitive": true,
+      "action_id": "reduce_runtime"
+    },
+    {
+      "id": "fridge",
+      "name": "Refrigerator",
+      "class": "fridge",
+      "driver_analysis": false,
+      "weather_sensitive": false,
+      "action_id": "reduce_runtime"
+    },
+    {
+      "id": "washing_machine",
+      "name": "Washing machine",
+      "class": "washing_machine",
+      "driver_analysis": true,
+      "weather_sensitive": false,
+      "action_id": "reduce_runtime"
+    }
+  ]
+}
