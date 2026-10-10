@@ -71,6 +71,98 @@ Which appliances reach `go`; every metric; the evidence level (`independent_test
 
 HTTPS, persistent results, user accounts, more appliances, other households, weather adjustment, measured-savings tracking, CloudWatch metrics. None may be required by P0.
 
+### 2.4 Audit findings and architectural baseline changes
+
+#### Problems identified and resolved
+
+| # | Problem | Severity | Resolution |
+|---|---|---|---|
+| A1 | Demo samples were 35 days, but the held-out test period of a ~73-day dataset is only about 3 weeks; samples would include training data. | Critical (honesty) | Samples use only the held-out test period, 3 whole weeks (D-011). |
+| A2 | Problem-week injection was fixed at +25%, but flag threshold is `max(25%, 2 × error)`. With error > 12.5%, demo moment fails silently. | Critical (demo) | Injection size derived from T after evaluation (D-014). |
+| A3 | Threshold error measured over whole test period where weekly errors cancel, while flag compares one week. | High (correctness) | Use median weekly energy error (D-012). |
+| A4 | Savings range `mid × (1 ± e)` applied relative error to excess, understating uncertainty. | Medium (correctness) | Absolute uncertainty `e × kWh_W0` (D-013). |
+| A5 | Evaluation showed one example day without weekly energy or flag verification evidence. | High (judging) | Weekly chart, downstream check, rule-selected window (D-017). |
+| A6 | No gap between train and test windows; window could straddle both. | Medium (leakage) | Gap ≥ window/2 (D-016). |
+| A7 | Caddy and sslip.io HTTPS added unnecessary points of failure. | Medium (feasibility) | FastAPI serves frontend on port 80; HTTPS is P2 (D-004). |
+| A8 | Result persistence existed only for a link in the email alert. | Low | Email is self-contained; no persistence (D-019). |
+| A9 | Teammate B owned AWS, API, frontend, and deployment while Teammate A owned only ML. | High (schedule) | Teammate A also owns preprocessing, energy, anomaly, and pipeline (D-020). |
+| A10 | Default typed bill (₹4,200 / 500 kWh) mismatched sample consumption. | Medium (demo) | Default bill derived from sample kWh, labelled illustrative (D-023). |
+| A11 | CO₂ factor implied without official source. | Medium (honesty) | Sourced from CEA database; nullable and hidden until configured (D-024). |
+| A12 | Node 20 reached end-of-life in 2026. | Low | Node 22 LTS (D-027). |
+
+#### Baseline evolution
+
+| ID | Area | Initial Design | Current Approved Contract | Decision |
+|---|---|---|---|---|
+| C-01 | Hosting | Caddy reverse proxy + sslip.io HTTPS | Uvicorn on port 80 serves API and static build; HTTPS P2 | D-004 |
+| C-02 | API | `GET /api/analysis/{id}`, `results/` in S3 | Removed; transient in-memory analyses only | D-019 |
+| C-03 | Samples | 35 days ("normal_month") | 3 weeks of held-out test data; IDs `normal`, `problem_week` | D-011 |
+| C-04 | Contract fields | `kwh_28d`, `cost_28d_inr`, `total_kwh_28d` | `kwh_period`, `cost_period_inr`, `total_kwh_period` | D-011 |
+| C-05 | Error metric | `energy_error_pct` (whole test period) | `weekly_energy_error_pct` (median weekly) in registry | D-012 |
+| C-06 | Savings range | `mid × (1 ± e)` | `mid ± e × kWh_W0` | D-013 |
+| C-07 | Scenario size | Fixed +25% | `≥ max(40, T + 15)` percentage points, set after evaluation | D-014 |
+| C-08 | Evaluation contract | Metrics + one window | Adds `weekly[]`, `downstream_check`, `selection_rule`, `code_version`, `gap_minutes` | D-017 |
+| C-09 | Split | Train/test | Train/gap/test with gap ≥ window/2 | D-016 |
+| C-10 | Alerts | Cooldown per 10 min, link in email | One email per analysis, `send_alert` flag, self-contained text | D-019 |
+| C-11 | Ownership | ML owns `nilm/`, `analytics/` | A: preprocess, nilm, energy, anomaly, pipeline. B: api, schemas, storage, alerts, validate, cost, recommend, frontend, AWS | D-020 |
+| C-12 | Weekly energy | Sum of valid minutes | Mean of valid minutes × 168 h (coverage-normalised) | D-021 |
+| C-13 | Analysis window | Last 35 days | Whole weeks, 3–5, counted back from last complete day | D-021 |
+| C-14 | Bill default | Typed values | Derived from sample kWh × illustrative rate | D-023 |
+| C-15 | CO₂ | Factor assumed present | Nullable; hidden when not configured | D-024 |
+| C-16 | Repo artifacts | Not specified | `artifacts/` mirrors S3 (JSON committed, binaries ignored) | D-025 |
+| C-17 | Priorities | Backup video P1, HTTPS P1 | Backup video P0, HTTPS P2 | D-026 |
+| C-18 | Node | 20 | 22 LTS | D-027 |
+| C-19 | `RuleStepDetector` | Fallback, unevaluated | Must pass same offline evaluation to be used | D-009 |
+| C-20 | Frontend language | JavaScript | TypeScript mirroring schemas | D-028 |
+
+### 2.5 Architecture Decision Record (ADR)
+
+- **D-001 — Target household scope:** Accepted. Indian residential households with 1-minute whole-house measurements. Small businesses deferred to future work. Trade-off: narrower market scope, complete evidential integrity.
+- **D-002 — Python + FastAPI backend:** Accepted. Single language with training scripts removes train/serve mismatch risks. Teammate A can read and debug backend logic.
+- **D-003 — Single FastAPI process on one EC2 instance:** Accepted. Stateless request pipeline, simplest operational debugging. Mitigated by backup video and laptop fallback (D-026).
+- **D-004 — Port 80 HTTP serving; no Caddy reverse proxy:** Accepted. Same-origin serving eliminates CORS and mixed-content issues. HTTPS deferred to P2.
+- **D-005 — No database:** Accepted. Analyses are ephemeral computations; artifacts are file-based keys in S3.
+- **D-006 — Amazon S3 as single artifact store:** Accepted. Decoupled artifact sync without requiring SSH access for model deployment.
+- **D-007 — Amazon SNS email notifications:** Accepted. One API call for alert distribution; failures degrade gracefully without blocking analysis.
+- **D-008 — ONNX Runtime for inference:** Proposed — pending validation (T-403). Lightweight CPU inference without PyTorch server dependency. Fallback: TorchScript with PyTorch CPU.
+- **D-009 — Sequence-to-point CNN per appliance:** Proposed — pending validation (T-402, T-404). Baseline NILM architecture trainable in Colab. Fallback: `RuleStepDetector` for AC if it passes evaluation.
+- **D-010 — iAWE dataset for training and evaluation:** Accepted. Delhi residential dataset with sub-metered ACs, refrigerator, and washing machine.
+- **D-011 — 3-week held-out test sample scope:** Accepted. Samples use only unseen test data, eliminating data-leakage criticism.
+- **D-012 — Median weekly energy error drives threshold:** Accepted. Evaluates weekly variance directly rather than cancelling over long aggregate horizons.
+- **D-013 — Absolute uncertainty for savings ranges:** Accepted. Formulas apply model uncertainty relative to base appliance energy, not relative to excess alone.
+- **D-014 — Threshold-derived problem-week injection:** Proposed — pending validation. `increase_pct = max(40, ceil(T × 100) + 15)` guarantees detection sensitivity without overfitting.
+- **D-015 — Heuristic flag rule:** Proposed — pending validation. `T = max(0.25, 2 × e)` plus minimum excess kWh prevents disaggregation noise from triggering flags.
+- **D-016 — Chronological split with half-window gap:** Accepted. Prevents temporal sequence overlap across train and test boundaries.
+- **D-017 — Precomputed evaluation artifacts:** Accepted. Ground truth exists only offline; serving reads precomputed evaluation artifact `/api/evaluation`.
+- **D-018 — Deterministic analytics without LLMs or agents:** Accepted. Explicit formulas and static action tables guarantee reproducible, audited outputs.
+- **D-019 — Transient analyses and self-contained alert emails:** Accepted. Eliminates per-analysis persistence and result URL lookup endpoints.
+- **D-020 — Team ownership division:** Accepted. Teammate A: ML, preprocessing, analytics, pipeline. Teammate B: API, schemas, storage, alerts, frontend, AWS.
+- **D-021 — Whole-week analysis and coverage normalization:** Accepted. Fixed 21-day window (1 current, 2 baseline weeks) normalized by valid minute coverage.
+- **D-022 — Banned terminology test:** Accepted. Automated tests enforce "likely driver" and prohibit words implying equipment failure or defect.
+- **D-023 — Effective tariff calculation and illustrative default bill:** Accepted. Bill amount ÷ units yields approximate ₹/kWh rate; defaults derived from sample kWh.
+- **D-024 — Nullable CEA CO₂ factor:** Accepted. Emission metrics are hidden unless a valid factor from CEA Baseline Database is configured.
+- **D-025 — S3-mirrored repository `artifacts/` layout:** Accepted. Version-controlled JSON schemas in git; model binaries transferred via S3.
+- **D-026 — Comprehensive demo resilience:** Accepted. P0 requirement includes backup video, local laptop fallback, alert screenshot, and timed rehearsals.
+- **D-027 — Python 3.12, Node 22 LTS, Ubuntu 24.04 LTS:** Accepted. Current stable LTS environments for deployment and tooling.
+- **D-028 — TypeScript React frontend:** Accepted. Strict compile-time validation against backend Pydantic models.
+- **D-029 — Deterministic synthetic fallback demo:** Accepted. P0 fallback ensures the product insight workflow is fully demonstrable even if no candidate model passes the GO gate.
+
+### 2.6 Unresolved decisions and experimental variables
+
+| ID | Question | Needed by | Resolving Task | Owner | Resolution Status |
+|---|---|---|---|---|---|
+| U-01 | Which appliances achieve `go` status? | Integration (T-501) | T-404, T-405 (Gate G2) | A | Open — determined by offline evaluation results |
+| U-02 | Exact train/gap/test dates; verification of ≥3 valid test weeks | Training (T-402) | T-101, T-102 (Gate G1) | A | Open — determined by dataset audit |
+| U-03 | Final flag threshold parameters `T` and problem-week injection size | Samples (T-109) | T-106, T-107 | A | Open — pending evaluation metric outputs |
+| U-04 | Frontend builder assignment | Phase 2 (T-205) | Phase 2 setup | B | Resolved — Teammate B with React/TypeScript |
+| U-05 | Sequence-to-point model window length | Training (T-402) | T-402 | A | Proposed — 99 samples (99 minutes) |
+| U-06 | Class aggregation: sum both AC channels or use primary AC? | Training (T-402) | T-101 | A | Open — depends on sub-meter completeness |
+| U-07 | CO₂ factor value and CEA database version | Config (T-206) | T-206 | B | Open — pending config sourcing; hidden when null |
+| U-08 | EC2 instance sizing confirmation | Deployment (T-301) | T-301, TS-PERF-04 | B | Proposed — `t3.medium` |
+| U-09 | Illustrative ₹/kWh rate for sample default bills | Samples (T-109) | T-109 | Both | Open — illustrative rate to be cited |
+| U-10 | ONNX Runtime export validation | Export (T-403) | T-403 | A | Proposed — pending PyTorch to ONNX export test |
+| U-11 | Secondary appliance choice for `problem_week` if AC is NO-GO | Samples (T-109) | T-107, Gate G2 | A | Open — fallback to refrigerator or synthetic trace |
+
 ---
 
 ## 3. System topology and responsibilities

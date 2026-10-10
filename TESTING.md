@@ -1,8 +1,8 @@
 # TESTING.md — Verification plan
 
-This file defines **how** NILMTrace is verified. It never states expected numbers for things that depend on experiments; it defines the measurement and where the result is recorded.
+This file defines **how** Appliance Energy Analyzer is verified. It never states expected numbers for things that depend on experiments; it defines the measurement and where the result is recorded.
 
-Behaviour under test is defined in [ARCHITECTURE.md](ARCHITECTURE.md). Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md).
+Behaviour under test is defined in [ARCHITECTURE.md](ARCHITECTURE.md). Requirements acceptance criteria and traceability are maintained in [TASKS.md](TASKS.md) §14.
 
 ---
 
@@ -103,21 +103,21 @@ Use FastAPI `TestClient`.
 | TS-F-02 | S3 unreachable (bad bucket name) with a populated cache → app starts from cache, `s3_synced: false` |
 | TS-F-03 | SNS client raises → analysis response still 200; error logged |
 | TS-F-04 | Pipeline raises → 500 `internal` with `analysis_id`; traceback in log |
-| TS-F-05 | On EC2: `sudo systemctl kill nilmtrace` → service back and healthy within 2 minutes |
+| TS-F-05 | On EC2: `sudo systemctl kill aea` → service back and healthy within 2 minutes |
 | TS-F-06 | Request before startup completes → 503 `not_ready` |
 
 ## 8. Model and anomaly evaluation procedure (Teammate A)
 
-Implemented by `ml/evaluate.py`. Definitions: ARCH §11. Results are **recorded**, never asserted in advance.
+Implemented by `ml/evaluate.py`. Definitions: ARCH §12. Results are **recorded**, never asserted in advance.
 
 | ID | Procedure | Recorded output |
 |---|---|---|
 | TS-E-01 | Data inventory and coverage; confirm ≥ 3 valid test weeks (gate G1) | `ml/reports/data_inventory.md`, `ml/reports/split.md`, `dataset` block of `evaluation.json` |
 | TS-E-02 | For each candidate: `mae_w`, `total_energy_error_pct`, `weekly_energy_error_pct` (median, max), ON/OFF precision/recall/F1, for the model, the naive baseline and (P1) the AC rule baseline | `model`, `naive_baseline`, `rule_baseline` |
 | TS-E-03 | Weekly predicted vs actual kWh for every valid test week | `weekly[]` |
-| TS-E-04 | Example window chosen by the rule of ARCH §11.6; the script prints the candidate days and their MAE so the choice can be audited | `example_window.selection_rule` + log |
-| TS-E-05 | Downstream check (ARCH §11.5): normal-run false flags and injected-run detection | `downstream_check` with its `note` |
-| TS-E-06 | GO/NO-GO per ARCH §11.4 with a written reason; thresholds chosen after seeing results and recorded | `decision`, `decision_note`, DECISIONS.md U-01 |
+| TS-E-04 | Example window chosen by the rule of ARCH §12.6; the script prints the candidate days and their MAE so the choice can be audited | `example_window.selection_rule` + log |
+| TS-E-05 | Downstream check (ARCH §12.5): normal-run false flags and injected-run detection | `downstream_check` with its `note` |
+| TS-E-06 | GO/NO-GO per ARCH §12.3 with a written reason; thresholds chosen after seeing results and recorded | `decision`, `decision_note`, ARCH §2.6 (U-01) / TASKS §15 (U-01) |
 
 Rules:
 - The evaluation run uses the same commit that is deployed (`code_version`).
@@ -126,14 +126,14 @@ Rules:
 
 ## 9. Performance tests (on the deployed instance)
 
-| ID | Procedure | Target (from REQUIREMENTS) |
+| ID | Procedure | Target (from TASKS §14.2) |
 |---|---|---|
 | TS-PERF-01 | Time from `systemctl start` to `samples_ready: true` (poll `/api/health` every 5 s) | ≤ 5 min |
 | TS-PERF-02 | 20 calls to `/api/analyze/sample` (`send_alert: false`), measure server time with `curl -w "%{time_total}"` from the instance | p50 ≤ 1 s |
 | TS-PERF-03 (P1) | Upload a 35-day 1-minute file; measure total time | ≤ 30 s |
 | TS-PERF-04 | `free -m` after startup | available ≥ 25% of RAM |
 
-Record measured values in DECISIONS.md under U-08.
+Record measured values in ARCHITECTURE.md §2.6 and TASKS.md §15 under U-08.
 
 ## 10. End-to-end demo tests
 
@@ -149,7 +149,7 @@ Record measured values in DECISIONS.md under U-08.
 | Gate | Must pass |
 |---|---|
 | **Software complete** | TS-U-01…12, TS-C-01…03, TS-P-02, TS-I-01…05, TS-A-01…03, TS-A-05, TS-F-01…06 |
-| **Model claims allowed** | TS-E-01…06 recorded; every number in the README traceable to `evaluation.json` (T-703) |
+| **Model claims allowed** | TS-E-01…06 recorded; every number in the README traceable to `evaluation.json` (TASKS T-603) |
 | **Deployed** | TS-PERF-01, 02, 04 meet targets on the chosen instance |
 | **Demo-ready (C5)** | TS-E2E-01, 02, 03, 04 pass; backup video recorded |
 

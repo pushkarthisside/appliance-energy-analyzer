@@ -1,120 +1,200 @@
-# PROJECT.md — Product specification
+# PROJECT.md — Appliance Energy Analyzer
 
-**NILMTrace** — *"Your bill tells you how much. We tell you why, and what to fix first."*
+## 1. Product Overview
 
-This file defines **what** the product is and is not. How it is built: [ARCHITECTURE.md](ARCHITECTURE.md). How it is accepted: [REQUIREMENTS.md](REQUIREMENTS.md).
+**Project name:** Appliance Energy Analyzer
 
-The product direction is **frozen**. Only feasibility, correctness, reliability or implementation constraints may change it, and every such change is recorded in [DECISIONS.md](DECISIONS.md).
+**Description:** An electricity usage diagnostic tool that estimates appliance-level consumption from whole-house electricity measurements, identifies unusual usage patterns, and recommends practical actions.
 
----
+**Hackathon:** Environmental Hacks × AWS Bharat Builds  
+**Team:** Inglorious Momos — two students.
 
-## 1. Problem
+This file defines the product scope. Technical contracts and implementation details belong in `ARCHITECTURE.md`.
 
-A household gets one electricity bill with one total. When the bill rises, the household cannot tell:
+The product direction is frozen unless feasibility, correctness, reliability, or implementation constraints require a change. Technical and architecture decisions are recorded in `ARCHITECTURE.md` §2.
 
-- which appliance used more electricity,
-- whether that use is unusual,
-- what to do about it first.
+## 2. Problem
 
-Finding out today means a separate meter or smart plug on every appliance. That costs money, takes installation work, and most households never do it. So people live with the higher bill or guess.
+A household's electricity meter reports total consumption but does not directly show which appliances contribute to that consumption or explain unusual changes.
 
-Unnecessary electricity use also has an environmental cost, because most of India's grid electricity is generated from fossil fuels.
+Monitoring individual appliances separately can require additional meters or smart plugs.
 
-## 2. Target user
+The Appliance Energy Analyzer explores whether a single whole-house electricity signal can provide useful appliance-level estimates and actionable insights without requiring a separate sensor for every appliance.
 
-- **Validated in this MVP:** Indian households with a whole-house power sensor that records at 1-minute intervals or faster (for example a clip-on sensor at the main panel).
-- **Future, not validated:** small businesses with similar appliance types.
+## 3. Target User and Input
 
-The MVP does not serve households that only have a monthly bill reading. That is a hard limitation of the method.
+**Primary target:** Indian households with whole-house electricity measurements recorded at approximately one-minute intervals or faster.
 
-## 3. Value proposition
+**Required input:** Timestamped aggregate electricity measurements with sufficient valid data for the defined weekly comparisons.
 
-From **one aggregate meter signal**, NILMTrace:
+A monthly electricity bill alone is insufficient for appliance-level analysis.
 
-1. estimates how much energy each supported appliance used,
-2. converts that into an estimated cost contribution,
-3. compares each appliance with its own normal week,
-4. flags unusual use and states the likely driver,
-5. recommends one action per issue, ranked by possible ₹ savings,
-6. shows the possible ₹, kWh and CO₂ savings if use returns to normal,
-7. sends an email alert when something is flagged.
+The MVP uses prepared sample scenarios. CSV upload is a P1 feature and must not delay the working P0 flow.
 
-The product loop:
+Small-business use is future work, not a validated market for this MVP (Decision D-001).
 
-**One aggregate meter → appliance estimation → cost attribution → baseline → anomaly → likely driver → action → possible savings**
+## 4. Core Product Workflow
 
-Layers: NILM is the AI engine; anomaly detection is the intelligence layer; "What to fix first" is the product value; ₹/kWh/CO₂ is the measurable impact.
+The product converts an aggregate electricity signal into an understandable diagnostic workflow:
 
-## 4. User journey (MVP)
+**Aggregate signal → appliance estimates → cost breakdown → baseline comparison → unusual-usage flag → recommendation → possible savings**
 
-1. Open the app. Choose **Normal weeks** or **Problem week**, or upload a CSV (P1).
-2. Enter the bill amount and units from the electricity bill (a sample has an illustrative default).
-3. **Where your money goes** — estimated kWh, cost contribution and share per appliance; the largest consumer is marked.
-4. **See the AI work** — the total signal split into appliance estimates, and the model's evaluation on data it never saw in training.
-5. **What changed** — each appliance against its normal week; flagged ones show the likely driver and possible explanations.
-6. **What to fix first** — ranked cards with one action each and possible ₹/kWh/CO₂ per month; or "No unusual use found."
-7. An alert email arrives when something is flagged.
+1. **Choose a scenario:** Select normal weeks or the simulated problem week.
+2. **Estimate appliance usage:** Use the supported NILM models or the approved precomputed sample results.
+3. **Understand consumption:** Show estimated energy consumption and approximate cost contribution for supported appliances.
+4. **Compare usage:** Compare the selected period against the defined baseline.
+5. **Identify unusual changes:** Flag eligible deviations and explain the likely driver only when supported by the analysis.
+6. **Recommend an action:** Present practical actions from deterministic recommendation rules.
+7. **Notify the user:** Demonstrate the configured email alert when an eligible issue is flagged.
 
-## 5. Features
+Clearly distinguish aggregate measurements, model estimates, calculated values, and simulated scenarios.
 
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F1 | Load data and bill | P0 (samples), P1 (CSV upload) | Effective cost per kWh = bill amount ÷ bill units, an approximation |
-| F2 | Where your money goes | P0 (drill-down P1) | "Estimated AC cost contribution: ₹X", never "Your AC caused ₹X" |
-| F3 | See the AI work | P0 | Labelled "Model evaluation on data not used in training"; includes weekly results, a naive baseline comparison and the downstream check; no confidence scores |
-| F4 | What changed | P0 | "The increase is primarily associated with longer operating time." Never "cause", "faulty" or "waste"; hotter weather is always a possible explanation for the AC |
-| F5 | What to fix first | P0 | Only flagged issues, ranked by ₹; "Possible savings if use returns to its normal level" |
-| F6 | Alert email | P0 | Supporting feature, not the headline |
+## 5. MVP Features and Priorities
 
-**Supported appliances:** decided by evaluation, not by this document. Candidates are AC, refrigerator and washing machine (plus any other usable channel in the dataset). An appliance appears in the product only after a recorded GO decision. Appliances that fail are listed, with reasons, in the methodology drawer.
-
-## 6. Non-goals (explicitly cut)
-
-Chatbot; AI agent; LLM in any calculation or recommendation; energy-efficiency score; forecasting; smart-home integration; hardware or smart plugs; mobile app; long-term improvement tracking; user calibration; confidence scores; per-appliance claims for appliances without a GO decision; small-business validation; extra AWS services or a database without a concrete need.
-
-Synthetic appliances are P2 only, and only if they pass through a real trained model and are never presented as validated.
-
-## 7. Limitations (shown in the app and README)
-
-1. Appliance figures are **estimates** from one aggregate signal.
-2. Models are trained and evaluated on **one household** (iAWE, Delhi, about 73 days). Accuracy in other homes is unknown.
-3. Only appliances with a GO decision are supported.
-4. Input must be whole-house power at 1-minute intervals or faster, for at least 3 weeks.
-5. Effective cost per kWh is an approximation; cost contributions do not reproduce the bill.
-6. Savings are **possible** savings if use returns to its normal level, not guaranteed.
-7. A flag means unusual energy use, not a faulty appliance. More AC use on hotter days is not waste.
-8. The "Problem week" is a **simulated scenario** built from real held-out data.
-9. **No real-world energy or emissions reduction has been measured.**
-
-## 8. Environmental impact methodology
-
-The environmental claim is a chain of estimates, each labelled:
-
-1. **Excess energy (estimated):** current-week appliance energy above its baseline, from model estimates.
-2. **Possible avoided energy (kWh/month):** excess × 30 ÷ 7, shown as a range that includes model error.
-3. **Possible avoided emissions (kg CO₂/month):** possible avoided kWh × the Indian grid emission factor from the Central Electricity Authority's CO2 Baseline Database (edition cited in the app and DECISIONS.md).
-
-What this is **not**: measured savings, measured emissions reductions, or a lifecycle assessment. Realising any saving requires the household to act, and real impact would need before/after measurement on real homes.
-
-## 9. Success criteria for the MVP
-
-| # | Criterion | How it is checked |
+| Feature | Priority | Requirement |
 |---|---|---|
-| S1 | At least one appliance passes GO on held-out real data and beats the naive baseline | `evaluation.json` (TESTING TS-E-06) |
-| S2 | The downstream check detects an injected increase and is recorded honestly, with its small sample size | `evaluation.json` → `downstream_check` |
-| S3 | The full loop runs on the public URL for both samples | TESTING TS-E2E-01 |
-| S4 | The demo fits in 3 minutes, twice in a row | TESTING TS-E2E-03 |
-| S5 | Every number in the UI and README is traceable to code output or `evaluation.json` | TASKS T-703 |
-| S6 | Every limitation in §7 is visible in the app and README | REQUIREMENTS FR-12 |
+| Prepared sample scenarios | P0 | Normal and simulated problem scenarios work end to end |
+| Bill and tariff input | P0 | Cost calculations use the configured effective rate |
+| Appliance cost breakdown | P0 | Show estimates only for supported appliances |
+| Model evaluation | P0 | Display actual evaluation results and methodology |
+| Baseline comparison | P0 | Identify eligible unusual changes using approved rules |
+| Recommendations | P0 | Use deterministic rules and explain possible actions |
+| Email alerts | P0 | Test the configured notification flow |
+| CSV upload | P1 | Implement only after the P0 flow works |
+| Additional interface polish | P2 | Only after required functionality is reliable |
 
-## 10. What the MVP delivers vs future work
+Detailed acceptance criteria and implementation tracking are maintained in `TASKS.md`. Verification procedures belong in `TESTING.md`.
 
-| Delivered (if S1–S6 pass) | Future work |
+## 6. Appliance Support
+
+Candidate appliances include air conditioning, refrigeration, and washing machines. These are candidates, not confirmed capabilities.
+
+An appliance may be presented as supported only when:
+
+- Its recorded evaluation decision is `go`.
+- Its required model is available and successfully loaded.
+- The implementation follows the support rules in `ARCHITECTURE.md`.
+
+Never invent appliance-level results for unsupported appliances. If no appliance passes the evaluation gate, report the blocker honestly and obtain an explicit team decision before changing the approach. Synthetic-trace appliances are restricted to the P0 fallback demo (`demo` status in registry) and must never be represented as real-model predictions.
+
+## 7. Analytics and Environmental Impact
+
+NILM is the machine-learning component. Cost calculations, baseline comparisons, unusual-usage detection, and recommendations use the deterministic logic defined in `ARCHITECTURE.md`.
+
+The product may present:
+
+- Estimated appliance-level energy consumption.
+- Approximate electricity cost contributions.
+- Changes relative to the defined baseline.
+- Possible actions associated with unusual usage.
+- Possible savings and avoided emissions, only when their calculations and required inputs are supported.
+
+These values are estimates, not guarantees.
+
+The `problem_week` scenario is simulated. It must be labelled as simulated wherever users might otherwise mistake it for a real household event.
+
+Do not claim measured household savings, measured emissions reductions, or proven real-world environmental impact without supporting evidence.
+
+## 8. AI and AWS
+
+### AI/ML
+
+NILM estimates appliance-level consumption from aggregate electricity measurements. It is the core ML capability of the product.
+
+Do not introduce an LLM, chatbot, or agent framework into calculations or recommendations (Decision D-018). AI must serve a real product requirement, not merely increase the apparent complexity.
+
+### AWS
+
+Follow the approved architecture in `ARCHITECTURE.md`:
+
+- **Amazon EC2:** Hosts the application.
+- **Amazon S3:** Stores configured artifacts and sample data.
+- **Amazon SNS:** Supports email notifications.
+- **AWS IAM:** Controls access to AWS resources.
+
+Do not introduce additional AWS services without a concrete requirement and an explicit team decision.
+
+## 9. Explicit Non-Goals
+
+The MVP does not include:
+
+- A chatbot, AI agent, or LLM-generated calculations (D-018).
+- Individual appliance sensors, smart plugs, or custom hardware.
+- Smart-home control or a mobile application.
+- User accounts, persistent per-user history, or a production multi-household platform (D-005, D-019).
+- Long-term forecasting or improvement tracking.
+- Claims that an appliance is defective based only on an unusual-usage flag (D-022).
+- Validated small-business monitoring (D-001).
+- Additional databases, queues, microservices, or infrastructure outside the approved architecture (D-003, D-005).
+- Claims of measured environmental impact based only on simulated scenarios.
+
+- Synthetic appliance scenarios are part of the P0 fallback demo to ensure the product remains demonstrable even if no real appliance meets the GO criteria; they are required for a reliable demo.
+
+## 10. Product Decisions and Skeptical Challenge Defenses
+
+### Key Scope and Product Decisions
+
+- **D-001 (Residential scope):** Indian households are the sole validated target because the iAWE dataset is residential. Small-business use remains future work.
+- **D-018 (Deterministic intelligence):** No LLMs, conversational agents, or generative models. Recommendations are driven by deterministic rules and fixed action definitions.
+- **D-022 (Honest wording):** The UI uses "likely driver", never "cause", and forbids defect-implying terminology.
+- **D-023 (Approximate rate derivation):** Bill input calculates an effective rate (₹/kWh) labelled approximate; sample default bills are derived from sample consumption and labelled illustrative.
+- **D-024 (Sourced emissions factor):** CO₂ factor is nullable and sourced from the CEA Baseline Database; emission reductions are hidden if not configured.
+- **D-026 (Demo resilience):** Demo resilience is a P0 priority, requiring a backup video, laptop fallback mode, pre-captured alert screenshots, and timed rehearsals.
+- **D-029 (Synthetic fallback):** Deterministic synthetic traces ensure the product insight loop is fully demonstrable even if no candidate model passes offline validation.
+
+### Prepared Answers to Skeptical Inquiries
+
+| Challenge | Prepared Honest Answer |
 |---|---|
-| NILM estimates for GO appliances, validated on unseen weeks of one household | Validation across many households |
-| Cost contribution from an effective rate | Slab-aware tariff modelling |
-| Weekly baseline anomaly flags with a likely driver | Weather-adjusted baselines |
-| Ranked actions with possible ₹/kWh/CO₂ | Measuring actual savings after the user acts |
-| Email alert to a demo inbox | Per-user accounts and alerts |
-| Samples + CSV upload (P1) | Live meter streaming |
-| Households | Small businesses (needs commercial sub-metered data) |
+| "One house. Will it work in mine?" | Not proven. The model is evaluated on unseen weeks of the same house. We display weekly error and downstream check results; cross-household transfer is future work. |
+| "You picked the best example." | The example window is selected by a deterministic frozen rule; weekly results for all test weeks are reported in the evaluation panel. |
+| "Beating a mean-share split is trivial." | It is the defined minimum bar; actual numbers against the naive baseline are reported either way. |
+| "Isn't the problem week fake?" | Yes, it is a transparently labelled simulated scenario. The anomaly flag is evaluated from the model's estimate on the modified aggregate, not from injected ground truth. |
+| "Who has 1-minute data?" | One main-panel clamp meter instead of sub-metering every appliance. Monthly bill data alone is insufficient. |
+| "Why only these appliances?" | Only appliances passing offline evaluation are supported; rejected candidates are listed with reasons in the methodology drawer. |
+
+## 11. Limitations
+
+The app and public documentation must disclose:
+
+1. Appliance-level figures are estimates derived from an aggregate electricity signal.
+2. Initial model development and evaluation use data from one household in the iAWE dataset from Delhi, covering approximately 73 days.
+3. Performance on other households has not been established.
+4. Only appliances that pass evaluation and runtime availability checks are supported.
+5. The analysis requires suitable time-series data; a monthly bill alone is insufficient.
+6. Effective electricity rates and cost contributions are approximate.
+7. Possible savings depend on user actions and actual operating conditions.
+8. The problem-week scenario is simulated.
+9. Real-world energy and emissions reductions have not been measured.
+
+## 12. MVP Success Criteria
+
+The submission should meet the following criteria:
+
+1. At least one appliance passes the documented evaluation gate on held-out real data and beats the defined naive baseline, or the synthetic fallback demo is clearly disclosed as the fallback.
+2. The downstream check detects an injected increase and its results are reported with appropriate limitations.
+3. The deployed application supports the required sample-analysis flow.
+4. The normal and simulated problem scenarios are clearly distinguished.
+5. The interface explains the estimates, comparisons, and recommended actions.
+6. The notification flow is tested or cleanly disabled.
+7. The core demo can be completed twice consecutively within approximately three minutes.
+8. Every displayed model metric and evaluation result is traceable to actual output.
+9. The limitations above are disclosed in the app and public documentation.
+
+If a criterion fails, report the failure accurately rather than presenting the project as fully validated.
+
+## 13. Documentation Responsibilities
+
+The project maintains five canonical internal specification documents:
+
+- `PROJECT.md` — product scope, workflow, key decisions, and limitations.
+- `ARCHITECTURE.md` — technical architecture, frozen contracts, APIs, schemas, processing, calculations, and Architecture Decision Record.
+- `TASKS.md` — implementation plan, priorities, requirements acceptance criteria matrix, dependencies, and task status.
+- `TESTING.md` — verification plan, test procedures, commands, and release gates.
+- `DEPLOYMENT.md` — AWS operational runbook, configuration, troubleshooting, and teardown.
+
+Public and agent documentation:
+- `README.md` — public GitHub landing page, verified summary, and repository guide.
+- `AGENTS.md` — coding-agent rules, source-of-truth hierarchy, and execution constraints.
+
+Avoid duplicating detailed technical contracts across documents. When requirements conflict, identify the conflict and resolve it explicitly before implementation.
