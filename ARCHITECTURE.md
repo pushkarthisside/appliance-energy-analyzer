@@ -96,17 +96,17 @@ HTTPS, persistent results, user accounts, more appliances, other households, wea
 |---|---|---|---|---|
 | C-01 | Hosting | Caddy reverse proxy + sslip.io HTTPS | Uvicorn on port 80 serves API and static build; HTTPS P2 | D-004 |
 | C-02 | API | `GET /api/analysis/{id}`, `results/` in S3 | Removed; transient in-memory analyses only | D-019 |
-| C-03 | Samples | 35 days ("normal_month") | 3 weeks of held-out test data; IDs `normal`, `problem_week` | D-011 |
+| C-03 | Samples | 35 days ("normal_month") | Canonical IDs are `typical_period` (available only with a passing real model) and `simulated_scenario` (synthetic demonstration fallback). Historical IDs `normal` and `problem_week` are retired terminology. | D-011 |
 | C-04 | Contract fields | `kwh_28d`, `cost_28d_inr`, `total_kwh_28d` | `kwh_period`, `cost_period_inr`, `total_kwh_period` | D-011 |
 | C-05 | Error metric | `energy_error_pct` (whole test period) | `weekly_energy_error_pct` (median weekly) in registry | D-012 |
 | C-06 | Savings range | `mid × (1 ± e)` | `mid ± e × kWh_W0` | D-013 |
-| C-07 | Scenario size | Fixed +25% | `≥ max(40, T + 15)` percentage points, set after evaluation | D-014 |
-| C-08 | Evaluation contract | Metrics + one window | Adds `weekly[]`, `downstream_check`, `selection_rule`, `code_version`, `gap_minutes` | D-017 |
-| C-09 | Split | Train/test | Train/gap/test with gap ≥ window/2 | D-016 |
-| C-10 | Alerts | Cooldown per 10 min, link in email | One email per analysis, `send_alert` flag, self-contained text | D-019 |
+| C-07 | Evaluation injection size | Fixed +25% | After a `go` decision, apply the fixed §12.6 rule `extra_kwh_week = (T + 0.15) × K_val`; record the injection and result without retuning. This does not change frozen GO/NO-GO criteria. | D-014 |
+| C-08 | Evaluation contract | Metrics + one window | Records `weekly[]`, scenario checks, deterministic example selection, `code_version`, and the §6.6 split gap dates/counts | D-017 |
+| C-09 | Split | Train/test | Chronological train/validation/test where available, with a full excluded local day between adjacent splits and no model windows crossing split boundaries (§12.2) | D-016 |
+| C-10 | Alerts | Cooldown per 10 min, link in email | Retired wording: one email per analysis. Current contract: an eligible analysis may trigger one self-contained email when enabled and configured, subject to per-sample/source cooldown; `send_alert` is a request, not a delivery guarantee. | D-019 |
 | C-11 | Ownership | ML owns `nilm/`, `analytics/` | A: preprocess, nilm, energy, anomaly, pipeline. B: api, schemas, storage, alerts, validate, cost, recommend, frontend, AWS | D-020 |
 | C-12 | Weekly energy | Sum of valid minutes | Mean of valid minutes × 168 h (coverage-normalised) | D-021 |
-| C-13 | Analysis window | Last 35 days | Whole weeks, 3–5, counted back from last complete day | D-021 |
+| C-13 | Analysis window | Last 35 days | Fixed 21 consecutive local days: two baseline weeks and one current week (§7.1) | D-021 |
 | C-14 | Bill default | Typed values | Derived from sample kWh × illustrative rate | D-023 |
 | C-15 | CO₂ | Factor assumed present | Nullable; hidden when not configured | D-024 |
 | C-16 | Repo artifacts | Not specified | `artifacts/` mirrors S3 (JSON committed, binaries ignored) | D-025 |
@@ -130,9 +130,9 @@ HTTPS, persistent results, user accounts, more appliances, other households, wea
 - **D-011 — 3-week held-out test sample scope:** Accepted. Samples use only unseen test data, eliminating data-leakage criticism.
 - **D-012 — Median weekly energy error drives threshold:** Accepted. Evaluates weekly variance directly rather than cancelling over long aggregate horizons.
 - **D-013 — Absolute uncertainty for savings ranges:** Accepted. Formulas apply model uncertainty relative to base appliance energy, not relative to excess alone.
-- **D-014 — Threshold-derived problem-week injection:** Proposed — pending validation. `increase_pct = max(40, ceil(T × 100) + 15)` guarantees detection sensitivity without overfitting.
+- **D-014 — Threshold-derived evaluation injection:** Accepted as a fixed post-GO scenario-check rule in §12.6. It does not change or tune the frozen GO/NO-GO criteria; a missed detection is recorded as observed.
 - **D-015 — Heuristic flag rule:** Proposed — pending validation. `T = max(0.25, 2 × e)` plus minimum excess kWh prevents disaggregation noise from triggering flags.
-- **D-016 — Chronological split with half-window gap:** Accepted. Prevents temporal sequence overlap across train and test boundaries.
+- **D-016 — Chronological split with excluded-day gaps:** Accepted. The deterministic §12.2 split excludes a full local day between adjacent splits, and the window rule discards any model window that crosses a split boundary or touches a gap/unassigned day.
 - **D-017 — Precomputed evaluation artifacts:** Accepted. Ground truth exists only offline; serving reads precomputed evaluation artifact `/api/evaluation`.
 - **D-018 — Deterministic analytics without LLMs or agents:** Accepted. Explicit formulas and static action tables guarantee reproducible, audited outputs.
 - **D-019 — Transient analyses and self-contained alert emails:** Accepted. Eliminates per-analysis persistence and result URL lookup endpoints.
@@ -142,7 +142,7 @@ HTTPS, persistent results, user accounts, more appliances, other households, wea
 - **D-023 — Effective tariff calculation and illustrative default bill:** Accepted. Bill amount ÷ units yields approximate ₹/kWh rate; defaults derived from sample kWh.
 - **D-024 — Nullable CEA CO₂ factor:** Accepted. Emission metrics are hidden unless a valid factor from CEA Baseline Database is configured.
 - **D-025 — S3-mirrored repository `artifacts/` layout:** Accepted. Version-controlled JSON schemas in git; model binaries transferred via S3.
-- **D-026 — Comprehensive demo resilience:** Accepted. P0 requirement includes backup video, local laptop fallback, alert screenshot, and timed rehearsals.
+- **D-026 — Comprehensive demo resilience:** Accepted. P0 requires a backup video, local laptop fallback, and timed rehearsals; capture an alert screenshot only when optional SNS alerting is configured.
 - **D-027 — Python 3.12, Node 22 LTS, Ubuntu 24.04 LTS:** Accepted. Current stable LTS environments for deployment and tooling.
 - **D-028 — TypeScript React frontend:** Accepted. Strict compile-time validation against backend Pydantic models.
 - **D-029 — Deterministic synthetic fallback demo:** Accepted. P0 fallback ensures the product insight workflow is fully demonstrable even if no candidate model passes the GO gate.
@@ -153,7 +153,7 @@ HTTPS, persistent results, user accounts, more appliances, other households, wea
 |---|---|---|---|---|---|
 | U-01 | Which appliances achieve `go` status? | Integration (T-501) | T-404, T-405 (Gate G2) | A | Open — determined by offline evaluation results |
 | U-02 | Exact train/gap/test dates; verification of ≥3 valid test weeks | Training (T-402) | T-101, T-102 (Gate G1) | A | Open — determined by dataset audit |
-| U-03 | Final flag threshold parameters `T` and problem-week injection size | Samples (T-109) | T-106, T-107 | A | Open — pending evaluation metric outputs |
+| U-03 | Final flag threshold parameters `T` and evaluation scenario-injection size | Samples (T-109) | T-106, T-107 | A | Open — pending approved evaluation metric outputs |
 | U-04 | Frontend builder assignment | Phase 2 (T-205) | Phase 2 setup | B | Resolved — Teammate B with React/TypeScript |
 | U-05 | Sequence-to-point model window length | Training (T-402) | T-402 | A | Proposed — 99 samples (99 minutes) |
 | U-06 | Class aggregation: sum both AC channels or use primary AC? | Training (T-402) | T-101 | A | Open — depends on sub-meter completeness |
@@ -161,7 +161,7 @@ HTTPS, persistent results, user accounts, more appliances, other households, wea
 | U-08 | EC2 instance sizing confirmation | Deployment (T-301) | T-301, TS-PERF-04 | B | Proposed — `t3.medium` |
 | U-09 | Illustrative ₹/kWh rate for sample default bills | Samples (T-109) | T-109 | Both | Open — illustrative rate to be cited |
 | U-10 | ONNX Runtime export validation | Export (T-403) | T-403 | A | Proposed — pending PyTorch to ONNX export test |
-| U-11 | Secondary appliance choice for `problem_week` if AC is NO-GO | Samples (T-109) | T-107, Gate G2 | A | Open — fallback to refrigerator or synthetic trace |
+| U-11 | Secondary synthetic appliance choice for `simulated_scenario` when needed | Samples (T-109) | T-107, Gate G2 | A | Open — choose from approved synthetic traces |
 
 ---
 
@@ -609,7 +609,7 @@ Each issue carries: driver text (if any); `caveats` = `[caveats.general]` plus `
 
 | `sample_id` | Content | Simulated |
 |---|---|---|
-| `typical_period` | Real held-out aggregate; real `go` models only | no |
+| `typical_period` | Real-data demonstration from a held-out aggregate; available only when a real appliance model has `go` under §12.3; real `go` models only | no |
 | `simulated_scenario` | Prefer a real held-out base plus documented synthetic-trace appliances; if no valid 21-day base exists, use a fully synthetic background plus synthetic-trace appliances (§10.2–10.3) | yes |
 
 A sample is `available: false` when it would contain no monitored appliance (e.g. `typical_period` when no model is `go`). Samples are built offline by `ml/make_samples.py` and uploaded to S3.
@@ -623,7 +623,6 @@ A sample is `available: false` when it would contain no monitored appliance (e.g
 ### 10.3 Synthetic appliances and scenarios
 
 - A synthetic appliance is generated by `ml/synthetic/generate.py` from a YAML scenario config with a fixed seed and written to committed trace CSVs. The config hash and seed are in the manifest. Regeneration must be byte-identical.
-- For the fully synthetic fallback only, a separate deterministic background generator produces the unitemized aggregate load; record its script, config hash, and seed as `synthetic_background`. It is not registered as an appliance and is not included in appliance metrics.
 - For the fully synthetic fallback only, a separate deterministic background generator produces the unitemized aggregate load; record its script, config hash, and seed as `synthetic_background`. It is not registered as an appliance and is not included in appliance metrics.
 - Per-appliance config: daily ON windows (start time, duration), `power_w` and `noise_std_w`, an optional weekday pattern, and an optional **current-week change**: `extra_minutes_per_day` (→ `longer_operating_time`) or `power_multiplier` (→ `higher_power_when_on`).
 - Default P0 scenario: at least one and up to two synthetic appliances for classes with no `go` real model, e.g. `air_conditioner_sim` (longer operating time in the current week) and `water_heater_sim` (higher power while on in the current week). If every attempted class has a `go` model, choose a separate demonstration class not represented by a `go` model. A class with a `go` real model is never also simulated. `simulated_scenario` is invalid if it contains no synthetic appliance trace.
@@ -693,7 +692,7 @@ Non-API paths serve the React build with SPA fallback to `index.html`.
 
 ### 11.4 Upload rules (P1, default off)
 
-CSV with header `timestamp,power_w`; limits per §11.1. The upload is read into memory, analyzed, and discarded; the application never writes it to disk or logs its contents (Starlette may spool a >1 MB upload to a temp file and removes it when the request ends). Only `go` real models run; synthetic traces never apply. The response has `source.kind = "upload"` and `source.validated_domain = false`; the UI shows a notice that estimates for other homes are unverified. Uploads must not be used on the public HTTP demo for private data (§17.3).
+CSV with header `timestamp,power_w`; limits per §11.1. CSV upload is a P1 capability and disabled by default. The content is processed in memory, analyzed, and discarded; the application does not persist it to local disk or S3 and does not log its contents. Only `go` real models run; synthetic traces never apply. The response has `source.kind = "upload"` and `source.validated_domain = false`; the UI shows a notice that estimates for other homes are unverified. Uploads must not be used on the public HTTP demo for private data (§17.3).
 
 ### 11.5 AnalysisResponse (canonical; values illustrative; `appliances` and `signals` abridged)
 
@@ -957,8 +956,8 @@ Errors from the API are displayed with their `message`. Loading and `not_ready` 
 
 ## 16. Alerts (SNS, optional)
 
-- Enabled only when `AEA_ALERTS_ENABLED=true` and `AEA_SNS_TOPIC_ARN` is set. Subscriptions must be confirmed beforehand.
-- Sent at most once per analysis when `issues` is non-empty, subject to a per-`sample_id`/source cooldown of `AEA_ALERT_COOLDOWN_SECONDS` (default 600).
+- Alerts are optional. Enable only after the SNS topic, email subscription, and end-to-end notification path have been configured and tested. Runtime enablement requires `AEA_ALERTS_ENABLED=true` and `AEA_SNS_TOPIC_ARN` to be set; subscriptions must be confirmed beforehand.
+- An eligible analysis with non-empty `issues` may trigger an alert when requested, subject to a per-`sample_id`/source cooldown of `AEA_ALERT_COOLDOWN_SECONDS` (default 600). A `cooldown` result means delivery was suppressed by that cooldown; an email is not guaranteed for every analysis.
 - Publish is synchronous with a 3-second timeout. Any exception sets `alert.status = "failed"` and never fails the analysis.
 - Subject: `Appliance Energy Analyzer: unusual use estimated for N appliance(s)`. Plain-text body: source line (sample title; "Simulated demonstration scenario" when `source.simulated`), per issue: appliance, estimated change %, possible savings range (₹/month; marked "illustrative" when applicable), and the caveat line. No wording banned by §6.4.
 - The on-screen alert status is the primary evidence during a demo; the email is supplementary.
@@ -969,7 +968,7 @@ Errors from the API are displayed with their `message`. Loading and `not_ready` 
 
 ### 17.1 Resources
 
-One private S3 bucket, one SNS standard topic, one EC2 instance in `ap-south-1` with an instance profile. The instance type, resource names, and account ids are **configuration choices** (`t3.medium` is the planned default), not provisioned or tested facts. IMDSv2 required. Security group: inbound 80 from anywhere (demo), 22 from the team's IP addresses only; no other inbound.
+One private S3 bucket, an optional SNS standard topic, one EC2 instance in `ap-south-1` with an instance profile. The instance type, resource names, and account ids are **configuration choices** (`t3.medium` is the planned default), not provisioned or tested facts. IMDSv2 required. Security group: inbound 80 from anywhere (demo), 22 from the team's IP addresses only; no other inbound.
 
 IAM policy for the instance role:
 
@@ -979,7 +978,7 @@ IAM policy for the instance role:
 | S3 | `s3:GetObject` | `bucket/*` |
 | SNS | `sns:Publish` | the topic ARN |
 
-No write permissions. AWS credentials are never stored in the repository or on the instance. Developers upload artifacts with their own credentials from their machines.
+The EC2 role has read-only S3 access and no `s3:PutObject`, including for `uploads/*`. `sns:Publish` is granted only to the configured topic when alerting is used. AWS credentials are never stored in the repository or on the instance. Developers upload artifacts from their own machines using separate credentials limited to artifact prefixes (`models/`, `samples/`, `evaluation/`, and `config/`), with `s3:ListBucket` and only the required `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` object actions. Uploaded CSV content is processed in memory and is never persisted to local disk or S3; no S3 upload-prefix lifecycle rule is needed.
 
 ### 17.2 Environment variables (`/etc/aea/aea.env`, no secrets)
 
@@ -989,7 +988,7 @@ No write permissions. AWS credentials are never stored in the repository or on t
 | `AEA_AWS_REGION` | `ap-south-1` | Region |
 | `AEA_DATA_DIR` | `/opt/aea/data` | Local cache root |
 | `AEA_FRONTEND_DIR` | `/srv/aea/frontend/dist` | Built SPA |
-| `AEA_ALERTS_ENABLED` | `false` | Enable SNS alerts |
+| `AEA_ALERTS_ENABLED` | `false` | Enable SNS alerts only after the topic, confirmed email subscription, and end-to-end notification path are configured and tested |
 | `AEA_SNS_TOPIC_ARN` | — | Topic ARN |
 | `AEA_ALERT_COOLDOWN_SECONDS` | `600` | Cooldown |
 | `AEA_ENABLE_UPLOAD` | `false` | Enable upload route (P1) |
@@ -1008,7 +1007,7 @@ Analytics constants (§9) are in code, not environment.
 
 ## 18. Deployment
 
-Build the frontend on a developer machine (`npm ci && npm run build`); the instance needs no Node. `deploy/deploy.sh` copies `backend/` and `frontend/dist/` to the instance with `rsync` over SSH and restarts the service.
+Build the frontend on a developer machine (`npm ci && npm run build`); the instance needs no Node. `deploy/deploy.sh` copies `backend/` and `frontend/dist/` from the checked-out release with `rsync` over SSH and restarts the service. Do not use `git pull` on the instance as the deployment mechanism.
 
 Paths: `/srv/aea/backend` (code, `.venv`), `/srv/aea/frontend/dist`, `/opt/aea/data` (cache), `/etc/aea/aea.env`.
 
@@ -1032,6 +1031,50 @@ WantedBy=multi-user.target
 ```
 
 One worker keeps the in-memory sample cache and alert cooldown consistent. Backend runtime dependencies: `fastapi`, `uvicorn`, `numpy`, `pandas`, `onnxruntime`, `boto3`, `pydantic`. Training dependencies (e.g. PyTorch) are offline only.
+
+### 18.1 Provisioning and operations
+
+Use region `ap-south-1`. Before provisioning, enable account MFA, configure a monthly cost budget alert, and check expected resource costs. The S3 bucket is private, has all Block Public Access settings enabled, and uses server-side encryption. It stores configured artifacts and samples; do not configure an upload-only lifecycle rule because uploads are never persisted. Keep any lifecycle rule for a separately approved artifact type only when that artifact's retention requirements call for it.
+
+Create and harden the bucket with the AWS CLI (replace `<bucket>` with its unique name):
+
+```bash
+aws s3api create-bucket --bucket <bucket> --region ap-south-1 \
+  --create-bucket-configuration LocationConstraint=ap-south-1
+aws s3api put-public-access-block --bucket <bucket> \
+  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket <bucket> \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
+
+Attach an EC2-trusted instance role. Its S3 permissions are limited to `s3:ListBucket` on the bucket and `s3:GetObject` on the configured artifact objects; it has no S3 write access. If SNS alerting is enabled, allow `sns:Publish` only to its configured topic. Developers upload artifact updates from their own machines using separate credentials scoped to the artifact prefixes (`models/`, `samples/`, `evaluation/`, and `config/`). Never store AWS credentials in Git or on the instance. Require IMDSv2. The security group allows TCP 80 for the public demo and TCP 22 only from team `/32` addresses.
+
+Create and confirm the SNS email subscription only when enabling optional alerts. Test the end-to-end application notification path before setting `AEA_ALERTS_ENABLED=true`; otherwise leave the documented default `false`. The application environment file is `/etc/aea/aea.env`, root-owned and mode 644, and contains no secrets. The deployment example values are: `AEA_S3_BUCKET=<bucket>`, `AEA_AWS_REGION=ap-south-1`, `AEA_DATA_DIR=/opt/aea/data`, `AEA_FRONTEND_DIR=/srv/aea/frontend/dist`, `AEA_ALERTS_ENABLED=false`, `AEA_SNS_TOPIC_ARN=<topic-arn>` when configured, `AEA_ALERT_COOLDOWN_SECONDS=600`, `AEA_ENABLE_UPLOAD=false`, `AEA_MAX_UPLOAD_MB=20`, and `AEA_LOG_LEVEL=INFO`.
+
+When enabling alerts, create the topic, subscribe the demo inbox, confirm its subscription, and test SNS publishing. Then test an eligible application analysis end to end before enabling alerts in the environment:
+
+```bash
+aws sns create-topic --name aea-alerts --region ap-south-1
+aws sns subscribe --topic-arn <topic-arn> --protocol email --notification-endpoint <demo-email>
+aws sns publish --topic-arn <topic-arn> --subject "Appliance Energy Analyzer test" --message "Test alert"
+```
+
+Provision Ubuntu Server 24.04 LTS x86_64, planned default `t3.medium` (confirm against the performance requirements), 20 GiB gp3 storage, and the instance role. Keep the SSH key outside the repository. Install Python 3.12 and Git; the service runs from `/srv/aea/backend` with its virtual environment, serves the frontend from `/srv/aea/frontend/dist`, and uses `/opt/aea/data` for the validated artifact cache. The systemd unit runs Uvicorn as `ubuntu` on port 80 with one worker and `CAP_NET_BIND_SERVICE`; enable and start `aea`, then verify `/api/health` locally and from a phone using mobile data. Inspect service state and logs with `systemctl status aea` and `journalctl -u aea`.
+
+On the deployment machine, install the backend environment and build the frontend before deploying the checked-out release:
+
+```bash
+cd backend
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd ../frontend && npm ci && npm run build
+cd .. && ./deploy/deploy.sh
+curl -fsS http://<elastic-ip>/api/health
+```
+
+For code deployment, check out the intended release in the developer-side deployment clone and run `deploy/deploy.sh`; it transfers that checkout and restarts the service. To roll back, tag each known-good release (for example, `demo-ready-N`). In the deployment clone run `git checkout --detach demo-ready-N`, then run `./deploy/deploy.sh` from that checkout. The detached HEAD is expected: the script deploys the checked-out files and does not pull. After rollback, return to the existing working branch with `git switch main`. For artifact-only rollback, point the registry to the previous model version, sync artifacts, and restart the service. If recovery fails, use the prepared laptop fallback, then the backup video.
+
+On the prepared laptop fallback, sync the configured artifact bucket into a local cache, build the frontend, install the documented backend environment, and run Uvicorn with `AEA_DATA_DIR` pointed at that cache, `AEA_FRONTEND_DIR` at the build, and `AEA_ALERTS_ENABLED=false`. State clearly that the demo is running locally. After judging, stop or terminate the instance and release the Elastic IP; remove no-longer-needed SNS resources and credentials according to the team's account cleanup procedure.
 
 ---
 
@@ -1061,7 +1104,7 @@ Verification boundary: none of these have been run as of this document.
 ### 20.1 P0 — minimum reliable submission
 
 - Backend and frontend deployed on AWS (§17–18) with S3 sync and IAM role.
-- Both samples analyzed end to end; shared analytics; cost attribution; ranked issues with potential savings.
+- Every sample that is available under §10 analyzed end to end; the `simulated_scenario` fallback remains available independently of real-model evaluation; shared analytics, cost attribution, and ranked issues with possible savings.
 - Real-model inference only for appliances with `status: go`.
 - Synthetic demonstration appliances via `trace` adapter.
 - Four tabs, methodology drawer, evaluation panel generated from real `evaluation.json`.
@@ -1093,20 +1136,22 @@ HTTPS, persistent storage, emissions display with a verified factor, measured-sa
 
 **Binding order.** Training or model debugging must never block the working demo.
 
-1. **Deterministic analytics and synthetic-scenario pipeline, with tests.** Includes the data audit and split (§12.1–12.2; quick, no training) because sample bases come from validation/test weeks (§10.2), then analytics, synthetic generator, `make_samples.py`, and their tests. Output: the fallback artifact set (§20.3) in S3. `make_samples.py` supports both a valid real validation/test base and the fully synthetic fallback; sample generation must not block deployment.
-2. **Working frontend and API using the synthetic sample data** (`simulated_scenario`, no `go` model).
-3. **Deploy the working fallback to AWS** and record the backup demo from the deployed fallback.
-4. **In parallel, from the end of step 1:** attempt real appliance models and apply the frozen evaluation gate (§12.3), one final run per candidate.
-5. **Last:** integrate any `go` models (upload new registry, models, samples, and `evaluation.json` to S3 and restart; the fallback artifact set is kept so it can be restored), re-run end-to-end tests, and add SNS only if the full alert path is tested.
+1. **Build the smallest end-to-end application path** using the prepared sample contract and deterministic analytics interfaces.
+2. **Implement and verify the deterministic synthetic fallback** (`simulated_scenario`, no `go` model); generate and retain fallback artifacts. The fallback may use a valid held-out validation/test base or the fully synthetic background in §20.3.
+3. **Implement the shared data-processing and evaluation pipeline**, including the data audit and exact split procedure (§12.1–12.2), and freeze the GO/NO-GO criteria before evaluation results are examined.
+4. **Evaluate real models** against those frozen criteria and record actual metrics and decisions.
+5. **Integrate only `go` models**, retaining the independently working fallback artifacts.
+6. **Complete the core results experience and evidence display** and verify the available-sample flow.
+7. **Add optional SNS alerts or polish** only after the P0 fallback and results experience work. Enable SNS only after its full path has been configured and tested.
 
 **Freeze rule:** at the start of Day 4 no further model work begins; any candidate without a recorded evaluation decision stays `candidate` and the fallback in §20.3 applies without schedule impact.
 
 | Day | ML owner | Cloud/app owner |
 |---|---|---|
-| 1 | Step 1: data audit, split + `test_splits`, `go_criteria.json` committed, preprocess/postprocess, analytics + tests, synthetic generator, `make_samples.py`, upload fallback artifacts | AWS setup, FastAPI skeleton, schemas/errors, mock responses, frontend skeleton |
-| 2 | Finish step 1 leftovers (`test_go_gate`, parity harness); then step 4: first candidate training | Step 2: API routes on real pipeline output, S3 sync/startup/health, UI tabs 1, 3, 4 and drawer on the fallback bundle |
-| 3 | Step 4: finish candidates, ONNX export, `evaluate.py` (single final run per candidate), `export_registry.py`, scenario checks | Step 3: deploy fallback to EC2 end to end, UI Tab 2, backup recording |
-| 4 | Step 5: integrate `go` models, `test_parity`/sample tests, README claim wording | Step 5: redeploy, alert test (or disable), demo rehearsal, refresh backup recording |
+| 1 | Step 1: deterministic analytics interfaces and shared processing skeleton | Step 1: API/frontend skeleton, schemas/errors, and smallest end-to-end prepared-sample path |
+| 2 | Step 2: deterministic synthetic traces, fallback bundle, and fallback verification; then Step 3 data audit/splits and frozen criteria | Step 2: complete fallback journey, deploy fallback, and record backup demo |
+| 3 | Step 3: evaluation pipeline; Step 4: train/export/evaluate candidate models against frozen criteria | Step 6: complete core results experience and evidence display on available samples |
+| 4 | Step 5: integrate only `go` models; parity and sample checks | Step 6 verification; Step 7: configure and test optional alerts or finish polish; rehearse and refresh backup recording |
 
 ---
 

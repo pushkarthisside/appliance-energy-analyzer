@@ -34,11 +34,12 @@ Both teammates review shared contracts and end-to-end integration.
 
 Follow this order from `ARCHITECTURE.md` §20.6:
 
-1. Build deterministic analytics and the synthetic-scenario pipeline, including the data audit and split logic.
-2. Build the API and frontend using the working synthetic fallback.
-3. Deploy the fallback to AWS and record a backup demo.
-4. Attempt real appliance models in parallel once Step 1 is complete.
-5. Integrate models that pass the frozen GO/NO-GO gate. Add SNS only if the complete notification flow can be tested.
+1. Build the smallest end-to-end application path.
+2. Implement and verify the deterministic synthetic fallback independently of real-model evaluation.
+3. Implement the shared data-processing and evaluation pipeline; freeze GO/NO-GO criteria before examining results.
+4. Evaluate real models against the frozen criteria and record actual results.
+5. Integrate only models that pass; complete the core results experience and evidence display.
+6. Add optional SNS alerts or polish only after the P0 fallback and results experience work. Enable SNS only after the complete notification path is configured and tested.
 
 **Critical rule:** Real-model training must never block the working fallback demo.
 
@@ -60,7 +61,7 @@ Follow this order from `ARCHITECTURE.md` §20.6:
   - Verify the documented test commands work or record the blocker.
 
 - [ ] **T-003 — Verify implementation contracts**
-  - Review `ARCHITECTURE.md`, `PROJECT.md`, `TASKS.md` (§14 requirements matrix), and `TESTING.md`.
+  - Review `ARCHITECTURE.md`, `PROJECT.md`, `TASKS.md` (§14 requirements matrix), and the current implementation.
   - Resolve any conflict that would affect implementation before proceeding.
   - Keep the API and frontend types consistent with the frozen schemas.
 
@@ -88,7 +89,7 @@ This phase must produce a usable fallback without depending on a passing real ap
 
 - [ ] **T-103 — Freeze and verify GO/NO-GO criteria**
   - Commit `ml/go_criteria.json` using the criteria in `ARCHITECTURE.md` §12.3.
-  - Do not tune thresholds after examining evaluation results.
+  - Freeze and record the criteria before inspecting final evaluation results; do not tune thresholds afterward to obtain a pass.
   - Verify that undefined required metrics fail the relevant criterion and are recorded as `null`, not zero.
 
 - [ ] **T-104 — Implement shared preprocessing**
@@ -122,7 +123,7 @@ This phase must produce a usable fallback without depending on a passing real ap
 
 - [ ] **T-109 — Generate sample bundles**
   - Implement or verify `ml/make_samples.py`.
-  - Generate `typical_period` only when a valid real-model sample can be built.
+  - Generate `typical_period` only when at least one real appliance model passes the frozen criteria (`go`) and a valid real-model sample can be built.
   - Generate `simulated_scenario` using a valid held-out validation/test base plus synthetic traces when available; otherwise use the fully synthetic fallback.
   - Record actual provenance, dates, hashes, scenario configuration, and expected synthetic status.
   - Never use training days as the sample base.
@@ -285,7 +286,7 @@ This phase begins once the deterministic pipeline and fallback artifacts are ava
   - Confirm synthetic outputs do not contribute to real-model metrics or emissions claims.
 
 - [ ] **T-503 — Run backend and contract tests**
-  - Run the relevant tests in `TESTING.md`.
+  - Run the relevant checks listed in §13 and the architecture test expectations.
   - Verify preprocessing, postprocessing, analytics boundaries, wording, registry validation, splits, GO/NO-GO handling, samples, and API contracts.
 
 - [ ] **T-504 — Verify training/serving parity**
@@ -297,9 +298,9 @@ This phase begins once the deterministic pipeline and fallback artifacts are ava
   - Confirm the frontend build and API work together on the same origin.
   - Confirm that a failed optional service does not break analysis.
 
-- [ ] **T-506 — Test SNS alerts or disable them**
+- [ ] **T-506 — Configure optional SNS alerts or keep them disabled**
   - Enable SNS only if the complete path can be tested before the demo.
-  - Verify confirmed subscription, publish behavior, message wording, and on-screen status.
+  - Configure the topic and confirmed email subscription, then verify the end-to-end application notification path, message wording, cooldown, and on-screen status.
   - Otherwise keep alerts disabled and omit email from the demo.
 
 **Completion gate:** The deployed application follows the frozen contracts, tests have been run and recorded, and any failures or limitations are explicitly documented.
@@ -385,23 +386,57 @@ These are not requirements for the current MVP.
 - [ ] `README.md` reports only verified results.
 - [ ] No unsupported claims, secrets, or restricted artifacts are committed.
 
+### Verification commands, expectations, and release gates
+
+Run the relevant checks and record their actual outcomes; these commands and descriptions define expectations only and do not claim that checks have run:
+
+```bash
+(cd backend && .venv/bin/pytest -q)
+(cd backend && NILM_CACHE_DIR=../artifacts .venv/bin/pytest -q tests/test_contracts.py)
+(cd frontend && npm run typecheck && npm run build)
+PYTHONPATH=backend python ml/evaluate.py --data ml/data --artifacts artifacts
+```
+
+The evaluation command requires the dataset in `ml/data`. Use small fixtures for software/integration verification when real artifacts are unavailable. Keep software correctness, real-model performance, evaluation-only scenario checks, synthetic demonstration behavior, and real-world impact claims distinct. Synthetic scenario success verifies the constructed demo workflow only; it does not establish model quality or real-world detection performance. No real-world environmental impact is measured.
+
+The following test IDs are retained from the former verification plan; expected behavior follows `ARCHITECTURE.md`:
+
+| IDs | Documentation-level expectation |
+|---|---|
+| TS-U-01…12 | Preprocessing resamples to one-minute means, leaves empty bins missing, and does not interpolate or impute; time-zone, validity/coverage, analytics, bill validation, wording, postprocessing, and registry checks follow ARCH contracts. Energy expectation includes 1000 W for a full valid week = 168 kWh, with coverage normalization for missing minutes. |
+| TS-C-01…03 | Frontend mocks and committed artifact schemas validate against API/schema contracts; frontend types compile against mocks. |
+| TS-P-01…02 | TS-P-01 compares PyTorch and ONNX on a held-out batch with `np.allclose(atol=1e-3)` in normalized units; TS-P-02 backend/training reference parity has max absolute difference < 1 W and blocks model integration on failure. |
+| TS-I-01 | Each available sample returns a valid response with energy/cost reconciliation and expected series lengths. `typical_period` is conditional on a `go` real model. |
+| TS-I-02 | `simulated_scenario` produces the manifest's expected synthetic status and is categorized only as simulated demonstration behavior. |
+| TS-I-03…05 | Repeat sample requests are deterministic apart from `analysis_id`; registry `no_go` entries disappear from supported outputs; no issues yields the specified empty state. |
+| TS-A-01 | `/api/config` exposes only currently available samples and supported appliances. |
+| TS-A-02 | Unknown sample returns 404 `unknown_sample`; invalid bill returns 422 `invalid_bill`; omitted bill uses the illustrative sample default. |
+| TS-A-03…05 | Evaluation artifact is returned unchanged; upload validation cases are P1; SPA/API routing and CORS follow ARCH. |
+| TS-F-01…06 | Missing models, unavailable S3 with cache, optional SNS errors, pipeline errors, service recovery, and not-ready behavior follow ARCH failure contracts. |
+| TS-E-01…06 | Record actual inventory and split outcome; use `independent_test` only when its approved data requirements hold, otherwise record `development_only` or `none` as appropriate. Record available metrics, weekly results, deterministic example selection, applicable GO-model scenario checks, and frozen GO/NO-GO outcomes. Freeze criteria before evaluation; undefined required metrics are `null`, fail their criteria, appear in `failed_criteria`, and yield `no_go`. Development-only results are not independent validation; unavailable test weeks do not block the synthetic fallback. |
+| TS-PERF-01…04 | Record measured startup, sample latency, and memory against the existing targets. Upload throughput is P1 only. |
+| TS-E2E-01…03 | Verify the public available-sample journey, laptop fallback, and two timed rehearsals. The P0 synthetic fallback remains independently demonstrable. |
+| TS-E2E-04 | Verify end-to-end email delivery only when SNS alerting is enabled and configured; skip this check when intentionally disabled. |
+
+Software-complete verification covers applicable unit, contract, parity, integration, API, and failure checks. Model claims require the actual evaluation record. Deployment checks apply only when deployment is attempted. Demo readiness requires the available-sample journey, laptop fallback, rehearsals, and backup recording; email delivery is conditional on SNS being enabled. Optional upload and email checks do not block the P0 release when disabled/not implemented.
+
 ## 14. Requirements Acceptance Criteria Matrix
 
 ### 14.1 Functional Requirements
 
 | ID | Pri | Requirement | Acceptance Criterion | Task Mappings | Test Mappings |
 |---|---|---|---|---|---|
-| FR-01 | P0 | User can load sample scenario (`normal`, `problem_week`) | Clicking each sample button returns complete `AnalysisResponse` (ARCH §6/§11) and renders all tabs on public URL | T-109, T-203, T-204, T-207, T-303, T-505 | TS-A-01, TS-I-01, TS-E2E-01 |
-| FR-02 | P0 | Bill and tariff input derives effective ₹/kWh rate | Form displays live ₹/kWh; invalid input shows inline message and sends nothing; API returns 400 `bad_bill` on invalid values; sample defaults labelled illustrative | T-201, T-207 | TS-U-07, TS-A-02 |
-| FR-03 | P1 | User can upload aggregate CSV (ARCH §7.5) | Valid 21–35-day CSV returns complete analysis; invalid inputs return specified error code and one-sentence explanation | T-701, T-702 | TS-A-04, TS-PERF-03 |
+| FR-01 | P0 | User can load any available canonical sample (`typical_period`, `simulated_scenario`) | Each available sample returns complete `AnalysisResponse` (ARCH §6/§11) and renders its applicable results. `typical_period` is available only when a real model passes frozen criteria; `simulated_scenario` remains independently demonstrable as the disclosed synthetic fallback. | T-109, T-203, T-204, T-207, T-303, T-505 | TS-A-01, TS-I-01, TS-E2E-01 |
+| FR-02 | P0 | Bill and tariff input derives effective ₹/kWh rate | Form displays live ₹/kWh; invalid input shows inline message and sends nothing; API returns 422 `invalid_bill` on invalid bill values; sample defaults labelled illustrative | T-201, T-207 | TS-U-07, TS-A-02 |
+| FR-03 | P1 | User can upload aggregate CSV (ARCH §11.4) | Valid 21–35-day CSV returns complete analysis; invalid inputs return specified error code and one-sentence explanation | T-701, T-702 | TS-A-04, TS-PERF-03 |
 | FR-04 | P0 | "Where your money goes" cost breakdown | Per-appliance kWh, estimated cost contribution, share %, largest consumer, plus `other`; Σ appliance kWh + other = total within 0.1%; label reads "Estimated cost contribution" | T-104, T-106, T-204, T-207 | TS-U-03, TS-I-01 |
 | FR-05 | P1 | Daily drill-down per appliance | Clicking appliance displays its `daily_kwh` chart; days with <50% coverage appear as gaps | T-205, T-701 | TS-E2E-01 |
 | FR-06 | P0 | "See the AI work" current-week signals | Stacked chart renders aggregate and estimated appliance series (672 points each at 15-min downsampling) with legend | T-204, T-205 | TS-I-01, TS-E2E-01 |
-| FR-07 | P0 | Model evaluation panel | Shows per GO appliance example-window overlay (aggregate, predicted, actual), weekly chart, metrics table vs naive baseline, and downstream check; "Model evaluation on data not used in training" label visible; no confidence scores | T-203, T-205, T-405, T-505 | TS-C-02, TS-A-03, TS-E-02…05 |
+| FR-07 | P0 | Model evaluation panel | Shows actual evaluation evidence and limitations; for evaluated real models, shows per-GO example-window overlay, weekly chart, metrics vs naive baseline, and downstream check. If no real model passes, explicitly says no real-data appliance model was validated; never presents synthetic output as model evaluation. | T-203, T-205, T-405, T-505 | TS-C-02, TS-A-03, TS-E-02…05 |
 | FR-08 | P0 | "What changed" baseline comparison | Statuses follow ARCH §9; flagged rows show `driver_text` and explanation; no forbidden words appear | T-106, T-204, T-207 | TS-U-04, TS-U-05, TS-U-06, TS-I-02 |
-| FR-09 | P0 | "What to fix first" recommendations | Cards ordered by ₹ mid value; shows issue, likely driver, explanation, action, and 3 ranges; "Possible savings if use returns to its normal level" on every card; CO₂ hidden if factor null | T-106, T-204, T-207 | TS-U-08, TS-U-09, TS-I-02 |
+| FR-09 | P0 | "What to fix first" recommendations | Cards ordered by ₹ mid value; shows issue, likely driver, explanation, action, and three ranges using the approved possible-savings wording; CO₂ hidden if factor null | T-106, T-204, T-207 | TS-U-08, TS-U-09, TS-I-02 |
 | FR-10 | P0 | Empty state handling | With no detected issues, recommendations tab displays exactly "No unusual use found." | T-205, T-207 | TS-I-05, TS-E2E-01 |
-| FR-11 | P0 | Overuse alert email | When analysis has issues and `send_alert` is true, plain-text email arrives at subscribed inbox matching ARCH §16; UI shows alert status | T-506 | TS-F-03, TS-E2E-04 |
+| FR-11 | Optional | SNS email alert | When alerting is enabled and configured, an eligible analysis may trigger a plain-text email if requested and per-sample/source cooldown permits; the UI reflects `sent`, `failed`, `disabled`, `no_issues`, or `cooldown`. Do not require delivery while alerts are disabled. | T-506 | TS-F-03; TS-E2E-04 only when SNS is enabled |
 | FR-12 | P0 | Methodology drawer | Explains data types, simulated scenario description, CO₂ source, NO-GO appliances with reasons, and documented limitations | T-205, T-206 | TS-E2E-01 |
 | FR-13 | P0 | Registry-driven appliance set | Changing entry status between `go` and `no_go` in `registry.json` and restarting updates dashboard without code modifications | T-202, T-405, T-501 | TS-U-12, TS-I-04 |
 | FR-14 | P0 | Health endpoint | `/api/health` reports appliance runtime states, `samples_ready`, and `s3_sync` per ARCH §15.3 | T-201, T-203, T-505 | TS-A-01, TS-F-01 |
@@ -430,10 +465,10 @@ These are not requirements for the current MVP.
 | ID | Pri | Requirement | Verification |
 |---|---|---|---|
 | DR-01 | P0 | Real training and evaluation uses iAWE, aligned to 1-minute grid by shared preprocessing | TS-U-01, TS-E-01 |
-| DR-02 | P0 | Chronological split with half-window gap; test period contains ≥ 3 valid weeks | TS-U-02, TS-E-01 (Gate G1) |
-| DR-03 | P0 | Real sample periods built only from held-out test data (never training data) | TS-C-02, TS-I-01 |
-| DR-04 | P0 | `problem_week` is the sole simulated scenario; details disclosed in `scenario.json` and methodology | TS-I-02, TS-E2E-01 |
-| DR-05 | P1 | Uploaded files processed in memory; temporary S3 storage purged by 7-day lifecycle | TS-A-04, DEPLOYMENT §2 |
+| DR-02 | P0 | Use the exact chronological split, full-day gap/exclusion, coverage, contiguous-span, minimum-training-data, and window-boundary rules in ARCH §12.2 | TS-U-02, TS-E-01 (record the data-supported evidence level; `development_only`/`none` do not block the synthetic fallback) |
+| DR-03 | P0 | Real sample periods use only an approved held-out validation/test base; no training data. `typical_period` exists only when at least one real model passes frozen criteria. | TS-C-02, TS-I-01 |
+| DR-04 | P0 | `simulated_scenario` is the disclosed synthetic demonstration fallback; its manifest and methodology identify provenance. Simulated aggregate injections used for offline evaluation are fixtures, not user-facing sample IDs. | TS-I-02, TS-E2E-01 |
+| DR-05 | P1 | Uploaded CSV is processed in memory, not persisted to local disk or S3. | TS-A-04 |
 | DR-06 | P0 | Raw dataset files, model binaries, and private data excluded from Git | T-604 checklist |
 
 ### 14.4 API Requirements
@@ -449,20 +484,20 @@ These are not requirements for the current MVP.
 
 | ID | Pri | Requirement | Verification |
 |---|---|---|---|
-| AWS-01 | P0 | Resources provisioned in `ap-south-1` under an active budget alert | DEPLOYMENT §1, §10 |
-| AWS-02 | P0 | Single private S3 bucket with Block Public Access, SSE-S3 encryption, and structured prefixes | DEPLOYMENT §2, §10 |
-| AWS-03 | P0 | EC2 instance accesses AWS via IAM instance role (`s3:ListBucket`, `s3:GetObject`, `sns:Publish`) without on-instance credentials | DEPLOYMENT §3.1, §10 |
-| AWS-04 | P0 | Standard SNS topic with confirmed email subscription (or alerts disabled) | DEPLOYMENT §4, §10 |
-| AWS-05 | P0 | Security group restricts port 80 to HTTP, port 22 to team `/32` IP, no other inbound access | DEPLOYMENT §5, §10 |
-| AWS-06 | P0 | Artifact uploads use restricted IAM credentials scoped to artifact prefixes | DEPLOYMENT §3.2, §10 |
+| AWS-01 | P0 | Resources provisioned in `ap-south-1` under an active budget alert | ARCH §18.1 |
+| AWS-02 | P0 | Single private S3 bucket with Block Public Access, SSE-S3 encryption, and structured prefixes; no upload-storage lifecycle rule | ARCH §18.1 |
+| AWS-03 | P0 | EC2 instance accesses AWS via IAM instance role (`s3:ListBucket`, `s3:GetObject`, optional topic-scoped `sns:Publish`) without S3 write permissions or on-instance credentials | ARCH §17.1, §18.1 |
+| AWS-04 | Optional | SNS standard topic and confirmed email subscription when alerting is enabled and tested; no email requirement while disabled | ARCH §16, §18.1 |
+| AWS-05 | P0 | Security group allows port 80 for the demo and port 22 only from team `/32` IPs, with no other inbound access | ARCH §18.1 |
+| AWS-06 | P0 | Artifact uploads use separate developer credentials scoped to artifact prefixes | ARCH §18.1 |
 
 ### 14.6 Model Evaluation Requirements
 
 | ID | Pri | Requirement | Verification |
 |---|---|---|---|
-| ML-01 | P0 | Candidate models evaluated on held-out test set using MAE, energy error, and F1 vs naive baseline | TS-E-02, Gate G2 |
+| ML-01 | P0 | Candidate models evaluated on the ARCH-approved test split, or validation split in `development_only`, using required MAE, energy-error, coverage, and applicable F1 criteria vs the naive baseline | TS-E-02, Gate G2 |
 | ML-02 | P0 | Weekly predicted vs actual kWh reported for all valid test weeks in evaluation artifact | TS-E-03 |
-| ML-03 | P0 | Downstream anomaly check executed for every candidate with small sample size caveat | TS-E-05 |
+| ML-03 | P0 | Approved downstream anomaly check executed for each `go` model, with the small-sample limitation disclosed; record actual outcomes, including misses | TS-E-05 |
 | ML-04 | P0 | Example demonstration window selected by deterministic rule (median error day) | TS-E-04 |
 | ML-05 | P0 | Each candidate assigned recorded `go` or `no_go` decision with explicit written reason | TS-E-06, ARCH §2.6 |
 | ML-06 | P0 | Real models shown only if passing evaluation; fallback synthetic demo ensures full workflow | T-109, T-501, ARCH §20.3 |
@@ -478,7 +513,7 @@ These are not requirements for the current MVP.
 5. Effective electricity rates (₹/kWh) are approximations; cost allocations do not reproduce utility bills.
 6. Savings figures represent potential recovery if usage normalizes, not guaranteed outcomes.
 7. Anomaly flags indicate unusual energy usage relative to baseline, not proof of defective equipment.
-8. The problem-week scenario is a simulated demonstration.
+8. `simulated_scenario` is a simulated demonstration.
 9. Real-world energy and emissions reductions have not been measured.
 
 ### 14.8 Traceability Matrix
@@ -495,7 +530,7 @@ These are not requirements for the current MVP.
 | FR-08 | T-106, T-204, T-207 | TS-U-04, TS-U-05, TS-U-06, TS-I-02 |
 | FR-09 | T-106, T-204, T-207 | TS-U-08, TS-U-09, TS-I-02 |
 | FR-10 | T-205, T-207 | TS-I-05, TS-E2E-01 |
-| FR-11 | T-506 | TS-F-03, TS-E2E-04 |
+| FR-11 (optional) | T-506 | TS-F-03; TS-E2E-04 if SNS enabled |
 | FR-12 | T-205, T-206 | TS-E2E-01 |
 | FR-13 | T-202, T-405, T-501 | TS-U-12, TS-I-04 |
 | FR-14 | T-201, T-203, T-505 | TS-A-01, TS-F-01 |
@@ -512,10 +547,10 @@ These are not requirements for the current MVP.
 | NFR-12 | T-205 | TS-E2E-01 |
 | DR-01, DR-02 | T-101, T-102 | TS-U-01, TS-U-02, TS-E-01 |
 | DR-03, DR-04 | T-107, T-109 | TS-C-02, TS-I-02 |
-| DR-05 (P1) | T-301, T-701 | TS-A-04 |
+| DR-05 (P1) | T-701, T-702 | TS-A-04 |
 | DR-06 | T-002, T-604 | T-604 release check |
 | API-01…04 | T-201, T-202, T-203 | TS-C-01, TS-A-01…05 |
-| AWS-01…06 | T-301, T-302, T-506 | DEPLOYMENT §10 checklist |
+| AWS-01…06 | T-301, T-302, T-506 | ARCH §17–18.1 |
 | ML-01…07 | T-103, T-402, T-403, T-404, T-405, T-504 | TS-E-01…06, TS-P-01, TS-P-02 |
 | ML-08 (P1) | T-404 | TS-E-02 |
 
@@ -524,8 +559,8 @@ These are not requirements for the current MVP.
 | Decision ID | Open Question | Dependency | Owner | Resolving Task | Current Status |
 |---|---|---|---|---|---|
 | U-01 | Which candidate appliances achieve `go` status? | Gate G2 | A | T-404, T-405 | Open — determined by offline evaluation results |
-| U-02 | Exact train/gap/test split dates; confirm ≥3 valid test weeks | Gate G1 | A | T-101, T-102 | Open — determined by dataset audit |
-| U-03 | Final flag threshold `T` and problem-week injection size | Sample bundles | A | T-106, T-107, T-109 | Open — derived from evaluation error metrics |
+| U-02 | Exact split dates and whether `independent_test` requirements are met; otherwise record `development_only` or `none` | Evaluation evidence level | A | T-101, T-102 | Open — determined by dataset audit; unavailable test data does not block the synthetic fallback |
+| U-03 | Final flag threshold `T` and evaluation scenario-injection parameters | Sample bundles | A | T-106, T-107, T-109 | Open — derived from approved evaluation outputs; GO/NO-GO criteria remain frozen |
 | U-04 | Frontend builder assignment | Phase 2 | B | T-205 | Resolved — Teammate B with React/TypeScript |
 | U-05 | Model window length (proposed 99 samples at 1 min) | Training | A | T-402 | Open — proposed 99-minute window |
 | U-06 | Class aggregation: sum both AC channels or use primary AC? | Audit | A | T-101 | Open — depends on sub-meter completeness |
@@ -533,4 +568,4 @@ These are not requirements for the current MVP.
 | U-08 | EC2 instance sizing confirmation | Deployment | B | T-301 | Proposed `t3.medium`, verified via TS-PERF-04 |
 | U-09 | Illustrative ₹/kWh rate for sample default bills | Samples | Both | T-109 | Open — illustrative rate to be cited |
 | U-10 | ONNX Runtime CPU export validation | Adapters | A | T-403 | Proposed — validated on held-out batch |
-| U-11 | Secondary appliance choice for `problem_week` if AC is NO-GO | Fallback demo | A | T-107, T-109 | Open — fallback to refrigerator or synthetic trace |
+| U-11 | Secondary synthetic appliance choice for `simulated_scenario` when needed | Fallback demo | A | T-107, T-109 | Open — choose from approved synthetic traces |

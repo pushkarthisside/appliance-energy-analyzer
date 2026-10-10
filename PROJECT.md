@@ -39,13 +39,13 @@ The product converts an aggregate electricity signal into an understandable diag
 
 **Aggregate signal → appliance estimates → cost breakdown → baseline comparison → unusual-usage flag → recommendation → possible savings**
 
-1. **Choose a scenario:** Select normal weeks or the simulated problem week.
+1. **Choose a sample:** Select `typical_period` when available or the explicitly simulated `simulated_scenario` fallback.
 2. **Estimate appliance usage:** Use the supported NILM models or the approved precomputed sample results.
 3. **Understand consumption:** Show estimated energy consumption and approximate cost contribution for supported appliances.
 4. **Compare usage:** Compare the selected period against the defined baseline.
 5. **Identify unusual changes:** Flag eligible deviations and explain the likely driver only when supported by the analysis.
 6. **Recommend an action:** Present practical actions from deterministic recommendation rules.
-7. **Notify the user:** Demonstrate the configured email alert when an eligible issue is flagged.
+7. **Notify the user:** An eligible analysis may trigger an email when optional alerting is enabled and configured, and the sample/source cooldown permits it.
 
 Clearly distinguish aggregate measurements, model estimates, calculated values, and simulated scenarios.
 
@@ -53,17 +53,17 @@ Clearly distinguish aggregate measurements, model estimates, calculated values, 
 
 | Feature | Priority | Requirement |
 |---|---|---|
-| Prepared sample scenarios | P0 | Normal and simulated problem scenarios work end to end |
+| Prepared sample scenarios | P0 | Every sample available under `ARCHITECTURE.md` works end to end; the synthetic `simulated_scenario` fallback works independently of real-model evaluation |
 | Bill and tariff input | P0 | Cost calculations use the configured effective rate |
 | Appliance cost breakdown | P0 | Show estimates only for supported appliances |
 | Model evaluation | P0 | Display actual evaluation results and methodology |
 | Baseline comparison | P0 | Identify eligible unusual changes using approved rules |
 | Recommendations | P0 | Use deterministic rules and explain possible actions |
-| Email alerts | P0 | Test the configured notification flow |
+| Email alerts | Optional | Test the configured notification flow when alerting is enabled; otherwise leave it disabled |
 | CSV upload | P1 | Implement only after the P0 flow works |
 | Additional interface polish | P2 | Only after required functionality is reliable |
 
-Detailed acceptance criteria and implementation tracking are maintained in `TASKS.md`. Verification procedures belong in `TESTING.md`.
+Detailed acceptance criteria, implementation tracking, and release verification are maintained in `TASKS.md`.
 
 ## 6. Appliance Support
 
@@ -91,7 +91,7 @@ The product may present:
 
 These values are estimates, not guarantees.
 
-The `problem_week` scenario is simulated. It must be labelled as simulated wherever users might otherwise mistake it for a real household event.
+`simulated_scenario` is a synthetic demonstration fallback. Label it as simulated wherever users might otherwise mistake it for a real household event. It is not a real appliance prediction or evidence that a real model passed evaluation. Simulated aggregate injections used in offline evaluation are fixtures, not user-facing samples.
 
 Do not claim measured household savings, measured emissions reductions, or proven real-world environmental impact without supporting evidence.
 
@@ -139,17 +139,17 @@ The MVP does not include:
 - **D-022 (Honest wording):** The UI uses "likely driver", never "cause", and forbids defect-implying terminology.
 - **D-023 (Approximate rate derivation):** Bill input calculates an effective rate (₹/kWh) labelled approximate; sample default bills are derived from sample consumption and labelled illustrative.
 - **D-024 (Sourced emissions factor):** CO₂ factor is nullable and sourced from the CEA Baseline Database; emission reductions are hidden if not configured.
-- **D-026 (Demo resilience):** Demo resilience is a P0 priority, requiring a backup video, laptop fallback mode, pre-captured alert screenshots, and timed rehearsals.
+- **D-026 (Demo resilience):** Demo resilience is a P0 priority, requiring a backup video, laptop fallback mode, and timed rehearsals; capture an alert screenshot only when optional SNS alerting is configured.
 - **D-029 (Synthetic fallback):** Deterministic synthetic traces ensure the product insight loop is fully demonstrable even if no candidate model passes offline validation.
 
 ### Prepared Answers to Skeptical Inquiries
 
 | Challenge | Prepared Honest Answer |
 |---|---|
-| "One house. Will it work in mine?" | Not proven. The model is evaluated on unseen weeks of the same house. We display weekly error and downstream check results; cross-household transfer is future work. |
-| "You picked the best example." | The example window is selected by a deterministic frozen rule; weekly results for all test weeks are reported in the evaluation panel. |
+| "One house. Will it work in mine?" | Not proven. Any real model that passes the frozen criteria is evaluated on unseen weeks of the same house. Its weekly error and applicable downstream check are reported; cross-household transfer is future work. |
+| "You picked the best example." | For any evaluated real model, the example window follows a deterministic frozen rule; results are shown for every available evaluation week. |
 | "Beating a mean-share split is trivial." | It is the defined minimum bar; actual numbers against the naive baseline are reported either way. |
-| "Isn't the problem week fake?" | Yes, it is a transparently labelled simulated scenario. The anomaly flag is evaluated from the model's estimate on the modified aggregate, not from injected ground truth. |
+| "Isn't the simulated scenario fake?" | Yes, `simulated_scenario` is a transparently labelled synthetic demonstration. Offline aggregate injections are evaluation fixtures and are not presented as user-facing samples. |
 | "Who has 1-minute data?" | One main-panel clamp meter instead of sub-metering every appliance. Monthly bill data alone is insufficient. |
 | "Why only these appliances?" | Only appliances passing offline evaluation are supported; rejected candidates are listed with reasons in the methodology drawer. |
 
@@ -164,7 +164,7 @@ The app and public documentation must disclose:
 5. The analysis requires suitable time-series data; a monthly bill alone is insufficient.
 6. Effective electricity rates and cost contributions are approximate.
 7. Possible savings depend on user actions and actual operating conditions.
-8. The problem-week scenario is simulated.
+8. `simulated_scenario` is simulated.
 9. Real-world energy and emissions reductions have not been measured.
 
 ## 12. MVP Success Criteria
@@ -172,9 +172,9 @@ The app and public documentation must disclose:
 The submission should meet the following criteria:
 
 1. At least one appliance passes the documented evaluation gate on held-out real data and beats the defined naive baseline, or the synthetic fallback demo is clearly disclosed as the fallback.
-2. The downstream check detects an injected increase and its results are reported with appropriate limitations.
+2. When a GO real model exists, run the approved downstream check and report its actual result with limitations. The synthetic fallback remains demonstrable if no real model passes.
 3. The deployed application supports the required sample-analysis flow.
-4. The normal and simulated problem scenarios are clearly distinguished.
+4. `typical_period`, when available, and the simulated `simulated_scenario` are clearly distinguished.
 5. The interface explains the estimates, comparisons, and recommended actions.
 6. The notification flow is tested or cleanly disabled.
 7. The core demo can be completed twice consecutively within approximately three minutes.
@@ -185,13 +185,12 @@ If a criterion fails, report the failure accurately rather than presenting the p
 
 ## 13. Documentation Responsibilities
 
-The project maintains five canonical internal specification documents:
+The project maintains five documentation files:
 
 - `PROJECT.md` — product scope, workflow, key decisions, and limitations.
 - `ARCHITECTURE.md` — technical architecture, frozen contracts, APIs, schemas, processing, calculations, and Architecture Decision Record.
 - `TASKS.md` — implementation plan, priorities, requirements acceptance criteria matrix, dependencies, and task status.
-- `TESTING.md` — verification plan, test procedures, commands, and release gates.
-- `DEPLOYMENT.md` — AWS operational runbook, configuration, troubleshooting, and teardown.
+- Verification and release checks are maintained in `TASKS.md`; technical deployment and operations are maintained in `ARCHITECTURE.md`.
 
 Public and agent documentation:
 - `README.md` — public GitHub landing page, verified summary, and repository guide.
