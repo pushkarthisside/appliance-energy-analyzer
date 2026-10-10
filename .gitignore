@@ -10,3 +10,5 @@ ml/out/
 **/__pycache__/
 *.onnx
 *.h5
+.pytest_cache/
+.env
