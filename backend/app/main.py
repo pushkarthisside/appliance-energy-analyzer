@@ -5,9 +5,14 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.routes import router as api_router
+from app.errors import validation_error_handler
 from app.schemas import HealthResponse
+from fastapi.exceptions import RequestValidationError
 
 app = FastAPI(title="Appliance Energy Analyzer", version="0.1.0")
+app.include_router(api_router)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 
 @app.get("/api/health", response_model=HealthResponse, responses={503: {"model": HealthResponse}})
