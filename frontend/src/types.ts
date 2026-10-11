@@ -2,6 +2,60 @@ export type HealthResponse = {
   status: "ok" | "degraded" | "not_ready";
   ready: boolean;
   samples: { id: "typical_period" | "simulated_scenario"; state: "ready" | "failed"; detail: string | null }[];
+  appliances: {
+    id: string;
+    provenance: "real_model" | "synthetic_trace";
+    registry_status: "go" | "no_go" | "candidate" | "demo";
+    runtime_state: "loaded" | "load_failed" | "inactive";
+    detail: string | null;
+  }[];
+};
+
+export type EvaluationArtifact = {
+  schema_version: number;
+  generated_at: string;
+  code_version: string;
+  criteria_sha256: string;
+  dataset: { name: string; audit_ref: string | null };
+  evidence_level: "independent_test" | "development_only" | "none";
+  no_evaluation_reason: string | null;
+  splits: {
+    gap_days: number;
+    gap_dates: string[];
+    train: { weeks: number; start: string | null; end: string | null } | null;
+    validation: { weeks: number; start: string | null; end: string | null } | null;
+    test: { weeks: number; start: string | null; end: string | null } | null;
+  };
+  real: Record<string, {
+    decision: "go" | "no_go";
+    failed_criteria: string[];
+    evaluated_on: "test" | "validation" | null;
+    n_weeks: number | null;
+    model_version: string | null;
+    test_reused: boolean | null;
+    model: EvaluationMetrics;
+    naive: EvaluationMetrics;
+    weekly?: { week_start: string; actual_kwh: number; model_kwh: number; naive_kwh: number }[];
+    example_day?: { date: string; rule: string; t: unknown[]; aggregate_w: unknown[]; actual_w: unknown[]; model_w: unknown[] } | null;
+  }>;
+  scenario_checks: {
+    appliance_id: string;
+    evaluated_on: string;
+    injection: Record<string, unknown>;
+    current_week_status: string;
+    detected: boolean;
+  }[];
+  unmodified_window_check: { go_appliances_checked: number; unusual_flags: number };
+  synthetic: {
+    pipeline_checks: { sample_id: string; appliance_id: string; expected_status: string; observed_status: string }[];
+  };
+};
+
+export type EvaluationMetrics = {
+  mae_w?: number | null;
+  weekly_energy_error_pct?: { median: number | null; worst: number | null } | null;
+  onoff_f1?: number | null;
+  coverage_pct?: number | null;
 };
 
 export type SampleAnalysisRequest = {

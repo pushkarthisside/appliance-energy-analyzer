@@ -1032,6 +1032,7 @@ Paths: `/srv/aea/backend` (code, `.venv`), `/srv/aea/frontend/dist`, `/opt/aea/d
 [Unit]
 Description=Appliance Energy Analyzer
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 User=ubuntu
@@ -1075,16 +1076,13 @@ aws sns subscribe --topic-arn <topic-arn> --protocol email --notification-endpoi
 aws sns publish --topic-arn <topic-arn> --subject "Appliance Energy Analyzer test" --message "Test alert"
 ```
 
-Provision Ubuntu Server 24.04 LTS x86_64, planned default `t3.medium` (confirm against the performance requirements), 20 GiB gp3 storage, and the instance role. Keep the SSH key outside the repository. Install Python 3.12 and Git; the service runs from `/srv/aea/backend` with its virtual environment, serves the frontend from `/srv/aea/frontend/dist`, and uses `/opt/aea/data` for the validated artifact cache. The systemd unit runs Uvicorn as `ubuntu` on port 80 with one worker and `CAP_NET_BIND_SERVICE`; enable and start `aea`, then verify `/api/health` locally and from a phone using mobile data. Inspect service state and logs with `systemctl status aea` and `journalctl -u aea`.
+Provision Ubuntu Server 24.04 LTS x86_64, planned default `t3.medium` (confirm against the performance requirements), 20 GiB gp3 storage, and the instance role. Keep the SSH key outside the repository. Install `python3.12`, `python3.12-venv`, `rsync`, and `curl`; on Ubuntu 24.04, run `sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv rsync curl`. The instance also needs outbound HTTPS access to the package index and S3. The service runs from `/srv/aea/backend` with its virtual environment, serves the frontend from `/srv/aea/frontend/dist`, and uses `/opt/aea/data` for the validated artifact cache. Before deploying, create `/etc/aea/aea.env` with the values in §17.2 and set `AEA_S3_BUCKET` to the private bucket. Upload the selected demo artifact bundle from the repository's `artifacts/` directory to that bucket using developer credentials with write access; the instance role remains read-only. Confirm the bucket contains `registry.json`, `config/`, and `samples/simulated_scenario/` objects at the expected keys before release. From the repository root, sync the bundle with `aws s3 sync artifacts/ s3://<bucket>/ --region ap-south-1` using the developer upload identity. No real-model ONNX objects are needed for the synthetic demo path. The deployment script installs the systemd unit from `deploy/aea.service`, enables it, and restarts it. The unit runs Uvicorn as `ubuntu` on port 80 with one worker and `CAP_NET_BIND_SERVICE`; the deploy script waits for `/api/health` to report `ready` and `simulated_scenario` ready, and checks that `/` serves the frontend. Verify `/api/health` externally from a phone using mobile data. Inspect service state and logs with `systemctl status aea` and `journalctl -u aea`.
 
-On the deployment machine, install the backend environment and build the frontend before deploying the checked-out release:
+On the deployment machine, build the frontend before deploying the checked-out release. `deploy/deploy.sh` transfers source and the frontend build, creates the Python 3.12 virtual environment on EC2 if needed, installs backend requirements there, installs/enables the systemd unit, restarts the service, and verifies that the primary simulated sample is ready. Do not copy a developer-machine virtual environment to EC2; virtual environments contain machine-specific paths and native packages. The script requires local `ssh`/`rsync`/`git`, remote `rsync`, `python3.12` with `python3.12-venv`, `curl`, working SSH access as `ubuntu`, and a readable `/etc/aea/aea.env` with a non-empty `AEA_S3_BUCKET`. It rejects dirty Git checkouts; deploy only from a clean checkout of the reviewed release.
 
 ```bash
-cd backend
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cd ../frontend && npm ci && npm run build
-cd .. && ./deploy/deploy.sh
+cd frontend && npm ci && npm run build
+cd .. && bash deploy/deploy.sh ubuntu@<elastic-ip>
 curl -fsS http://<elastic-ip>/api/health
 ```
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=Appliance Energy Analyzer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/srv/aea/backend
+EnvironmentFile=/etc/aea/aea.env
+ExecStart=/srv/aea/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 80 --workers 1
+Restart=always
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

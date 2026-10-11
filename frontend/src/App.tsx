@@ -3,17 +3,17 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AnalysisResponse,
   ApiErrorResponse,
+  EvaluationArtifact,
+  EvaluationMetrics,
   HealthResponse,
   SampleAnalysisRequest,
 } from "./types";
 
-type TariffStructure = "single_rate" | "tiered" | "additional_charges" | "unknown";
 type BillingDetails = {
   amount: string;
   units: string;
   startDate: string;
   endDate: string;
-  tariff: TariffStructure;
 };
 
 const sampleTitles = {
@@ -21,22 +21,11 @@ const sampleTitles = {
   simulated_scenario: "Simulated scenario",
 } as const;
 
-const tariffNotes: Record<TariffStructure, string> = {
-  single_rate: "The analysis uses the blended effective rate returned by the API.",
-  tiered:
-    "The API uses bill total ÷ billed units as a blended average. It does not reproduce individual tariff tiers.",
-  additional_charges:
-    "The API uses bill total ÷ billed units as a blended average; fixed charges and taxes are not separated.",
-  unknown:
-    "The API uses bill total ÷ billed units as a blended average. Review your bill for tiers and additional charges.",
-};
-
 const initialBilling: BillingDetails = {
   amount: "",
   units: "",
   startDate: "",
   endDate: "",
-  tariff: "unknown",
 };
 
 const currency = new Intl.NumberFormat("en-IN", {
@@ -53,12 +42,43 @@ function formatKwh(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} kWh`;
 }
 
+function evidenceSummary(level: AnalysisResponse["source"]["evidence_level"]) {
+  if (level === "independent_test") {
+    return "Real-model estimates were evaluated on held-out weeks from the same household.";
+  }
+  if (level === "development_only") {
+    return "Real-model estimates were checked on held-out development weeks; this is not independent validation.";
+  }
+  return "No real-data appliance model has been validated for this sample.";
+}
+
+function issueBasisLabel(basis: AnalysisResponse["issues"][number]["basis"]) {
+  if (basis === "real_model") return "Finding based on a real-model estimate";
+  return "Finding based on simulated appliance data";
+}
+
+function applianceStatusLabel(status: AnalysisResponse["appliances"][number]["status"], residual: boolean) {
+  if (residual) return "Not itemized";
+  if (status === "unusual") return "Unusual vs baseline";
+  if (status === "typical") return "Within baseline";
+  if (status === "insufficient_data") return "Insufficient data";
+  return "Status unavailable";
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(`${value.slice(0, 10)}T00:00:00`);
   return Number.isNaN(date.valueOf())
     ? value
     : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
+}
+
+function formatPeriodEnd(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.valueOf())) return value;
+  date.setDate(date.getDate() - 1);
+  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
 }
 
 function alertLabel(status: AnalysisResponse["alert"]["status"]) {
@@ -72,9 +92,46 @@ function alertLabel(status: AnalysisResponse["alert"]["status"]) {
   return labels[status];
 }
 
+function evidenceLevelLabel(level: EvaluationArtifact["evidence_level"]) {
+  if (level === "independent_test") return "Independent test weeks";
+  if (level === "development_only") return "Development-only evidence";
+  return "No real-model evaluation evidence";
+}
+
+function metricValue(value: number | null | undefined, suffix = "") {
+  return value == null || !Number.isFinite(value) ? "Unavailable" : `${value.toFixed(2)}${suffix}`;
+}
+
+function applianceSourceLabel(provenance: AnalysisResponse["appliances"][number]["provenance"]) {
+  if (provenance === "real_model") return "Real appliance model estimate";
+  if (provenance === "synthetic_trace") return "Prepared synthetic appliance trace";
+  return "Unitemized remainder";
+}
+
+function EvaluationMetricsTable({ model, naive }: { model: EvaluationMetrics; naive: EvaluationMetrics }) {
+  const rows = [
+    ["Mean absolute error", metricValue(model.mae_w, " W"), metricValue(naive.mae_w, " W")],
+    ["Weekly energy error (median)", metricValue(model.weekly_energy_error_pct?.median, "%"), metricValue(naive.weekly_energy_error_pct?.median, "%")],
+    ["Weekly energy error (worst)", metricValue(model.weekly_energy_error_pct?.worst, "%"), metricValue(naive.weekly_energy_error_pct?.worst, "%")],
+    ["On/off F1", metricValue(model.onoff_f1), metricValue(naive.onoff_f1)],
+    ["Coverage", metricValue(model.coverage_pct, "%"), "Not recorded"],
+  ];
+  return (
+    <div className="evaluation-table-wrap">
+      <table className="evaluation-table">
+        <thead><tr><th scope="col">Metric</th><th scope="col">Model</th><th scope="col">Naive baseline</th></tr></thead>
+        <tbody>{rows.map(([label, modelValue, naiveValue]) => <tr key={label}><th scope="row">{label}</th><td>{modelValue}</td><td>{naiveValue}</td></tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
 function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationArtifact | null>(null);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
+  const [evaluationLoading, setEvaluationLoading] = useState(true);
   const [sampleId, setSampleId] = useState<"typical_period" | "simulated_scenario" | "">("");
   const [billing, setBilling] = useState(initialBilling);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -104,6 +161,24 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/evaluation")
+      .then(async (response) => {
+        const payload: unknown = await response.json();
+        if (!response.ok) {
+          const apiError = payload as ApiErrorResponse;
+          throw new Error(apiError.error?.message ?? `Evaluation request failed (${response.status}).`);
+        }
+        if (active) setEvaluation(payload as EvaluationArtifact);
+      })
+      .catch((requestError: unknown) => {
+        if (active) setEvaluationError(requestError instanceof Error ? requestError.message : "Evaluation evidence could not be loaded.");
+      })
+      .finally(() => { if (active) setEvaluationLoading(false); });
+    return () => { active = false; };
+  }, []);
+
   const availableSamples = health?.samples.filter((sample) => sample.state === "ready") ?? [];
   const selectedSample = availableSamples.find((sample) => sample.id === sampleId);
   const amount = Number(billing.amount);
@@ -120,12 +195,13 @@ function App() {
   const appliances = useMemo(
     () =>
       (analysis?.appliances ?? [])
-        .sort((left, right) => (right.cost_period_inr ?? -1) - (left.cost_period_inr ?? -1)),
+        .sort((left, right) => (right.kwh_period ?? -1) - (left.kwh_period ?? -1)),
     [analysis],
   );
   const selectedAppliance = appliances.find((appliance) => appliance.id === selectedApplianceId);
   const topOpportunity = analysis?.issues[0] ?? null;
-  const leadingApplianceId = appliances.find((appliance) => appliance.provenance !== "residual")?.id;
+  const leadingApplianceId = analysis?.summary.largest_monitored_appliance_id;
+  const leadingAppliance = appliances.find((appliance) => appliance.id === leadingApplianceId);
 
   function updateBilling<K extends keyof BillingDetails>(key: K, value: BillingDetails[K]) {
     setBilling((current) => ({ ...current, [key]: value }));
@@ -184,7 +260,12 @@ function App() {
             <h1>Energy overview</h1>
             <p className="heading-copy">See how your electricity use is distributed across appliances.</p>
           </div>
-          {analysis && <div className="period-chip"><span>Analysis period</span><strong>{formatDate(analysis.period.start)} – {formatDate(analysis.period.end)}</strong></div>}
+          {analysis && (
+            <div className="period-chip" aria-label="Periods used in this analysis">
+              <div className="period-chip-group"><span>Prepared sample dates</span><strong>{formatDate(analysis.period.start)} – {formatPeriodEnd(analysis.period.end)}</strong></div>
+              <div className="period-chip-group"><span>Your bill dates</span><strong>{formatDate(billing.startDate)} – {formatDate(billing.endDate)}</strong></div>
+            </div>
+          )}
         </section>
 
         {(healthError || !health?.ready) && (
@@ -200,8 +281,13 @@ function App() {
 
         {analysis?.source.simulated && (
           <section className="simulation-banner" role="status">
-            <strong>Demonstration data</strong>
-            <span>Synthetic scenario; these are estimates, not household measurements.</span>
+            <strong>Simulated demonstration</strong>
+            <span>Prepared synthetic data, not household measurements. Appliance use and savings are estimates.</span>
+          </section>
+        )}
+        {analysis && !analysis.source.simulated && (
+          <section className="evidence-banner" role="status">
+            {evidenceSummary(analysis.source.evidence_level)}
           </section>
         )}
 
@@ -218,25 +304,31 @@ function App() {
               <small>{billing.units ? `${billing.units} kWh billed` : "Amount and units from your bill"}</small>
             </article>
             <article className="summary-item">
-              <span className="summary-label">Estimated cost</span>
+              <span className="summary-label">Sample-period cost</span>
               <strong>{formatCurrency(analysis?.summary.estimated_cost_period_inr)}</strong>
-              <small>{analysis ? `Approx. ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)} per kWh` : "Based on the bill's blended rate"}</small>
+              <small>{analysis ? `${analysis.period.days}-day sample at ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)}/kWh. Not your bill total.` : "Sample estimate at your bill's blended rate"}</small>
+            </article>
+            <article className="summary-item">
+              <span className="summary-label">Largest appliance</span>
+              <strong className="summary-name">{leadingAppliance?.name ?? "—"}</strong>
+              <small>{leadingAppliance?.share_pct != null ? `${leadingAppliance.share_pct.toFixed(1)}% of sample energy` : "Share shown after analysis"}</small>
             </article>
             <article className="summary-item">
               <span className="summary-label">Potential monthly savings</span>
               <strong>{topOpportunity ? `${formatCurrency(topOpportunity.savings.inr_per_month.low)}–${formatCurrency(topOpportunity.savings.inr_per_month.high)}` : "—"}</strong>
-              <small>{topOpportunity ? "Estimate if use returns to baseline" : "Shown when recommendations support it"}</small>
+              <small>{topOpportunity ? "Top finding estimate if use returns to baseline" : "Shown when recommendations support it"}</small>
             </article>
           </div>
         </section>
 
         <div className="content-grid">
           <section className="panel bill-panel" aria-labelledby="bill-title">
-            <div className="panel-heading"><h2 id="bill-title">Analysis inputs</h2></div>
+            <div className="panel-heading"><h2 id="bill-title">Your electricity bill</h2></div>
 
-            <form onSubmit={analyzeSample} className="bill-form">
+            <form onSubmit={analyzeSample} className="bill-form" aria-busy={submitting}>
               <fieldset>
-                <legend>Sample</legend>
+                <legend>Appliance data</legend>
+                <p className="input-hint sample-hint">Choose a prepared period to explore. Appliance estimates use its fixed dates; your bill dates below are for reference.</p>
                 <div className="sample-options">
                   {(["typical_period", "simulated_scenario"] as const).filter((id) => health?.samples.some((sample) => sample.id === id && sample.state === "ready")).map((id) => {
                     return (
@@ -251,6 +343,7 @@ function App() {
                         />
                         <span className="sample-option-copy">
                           <strong>{id === "simulated_scenario" ? "Demonstration sample" : sampleTitles[id]}</strong>
+                          <small>{id === "simulated_scenario" ? "Synthetic scenario; not household measurements" : "Prepared appliance analysis data"}</small>
                         </span>
                       </label>
                     );
@@ -259,7 +352,7 @@ function App() {
               </fieldset>
 
               <div className="form-section-label">Bill details</div>
-              <p className="input-hint">Enter the amount and units shown on your bill. Costs use the blended rate (amount ÷ units).</p>
+              <p className="input-hint">Your bill amount and units set the blended cost rate used for appliance estimates.</p>
               <div className="form-two-col">
                 <label className="field-label">
                   Bill amount <span>₹</span>
@@ -298,21 +391,10 @@ function App() {
                   <input type="date" value={billing.endDate} min={billing.startDate || undefined} onChange={(event) => updateBilling("endDate", event.target.value)} required />
                 </label>
               </div>
-              {billing.startDate && billing.endDate && <p className="input-hint period-hint">Billing period: {formatDate(billing.startDate)} – {formatDate(billing.endDate)}. Analysis uses the separate sample period shown above.</p>}
+              <p className="input-hint period-hint">Your bill dates are for context. The prepared sample’s dates determine which appliance data is analyzed.</p>
 
               {billing.amount && !amountValid && <p className="validation-message" role="alert">Enter a bill amount greater than zero, up to ₹10,000,000.</p>}
               {billing.units && !unitsValid && <p className="validation-message" role="alert">Enter billed units greater than zero, up to 10,000,000 kWh.</p>}
-
-              <label className="field-label tariff-field">
-                Tariff structure
-                <select value={billing.tariff} onChange={(event) => updateBilling("tariff", event.target.value as TariffStructure)}>
-                  <option value="unknown">I’m not sure</option>
-                  <option value="single_rate">Single / flat rate</option>
-                  <option value="tiered">Tiered or time-of-use rates</option>
-                  <option value="additional_charges">Includes fixed charges or taxes</option>
-                </select>
-                <small className="field-note">{tariffNotes[billing.tariff]}</small>
-              </label>
 
               {!periodValid && billing.startDate && billing.endDate && (
                 <p className="validation-message" role="alert">The billing period end date must be on or after the start date.</p>
@@ -320,7 +402,7 @@ function App() {
               {analysisError && <p className="form-error" role="alert">{analysisError}</p>}
 
               <button className="primary-button" type="submit" disabled={!selectedSample || !billValid || !periodValid || submitting || Boolean(healthError) || !health?.ready}>
-                {submitting ? "Analyzing…" : "Run analysis"}
+                {submitting ? "Analyzing sample…" : "Run analysis"}
               </button>
               {!selectedSample && <p className="form-footnote">No prepared sample is currently available.</p>}
             </form>
@@ -328,7 +410,7 @@ function App() {
 
           <section className="panel breakdown-panel" id="appliances" aria-labelledby="appliances-title">
               <div className="panel-heading breakdown-heading">
-                <div><h2 id="appliances-title">Where the energy goes</h2><p>Estimated share of total sample energy</p></div>
+                <div><h2 id="appliances-title">Where the energy goes</h2><p>Estimated cost contribution and share of sample energy</p></div>
                 {analysis && <span className="breakdown-total">{formatKwh(analysis.summary.total_kwh_period)} total</span>}
               </div>
             {appliances.length > 0 ? (
@@ -336,9 +418,13 @@ function App() {
                 {appliances.map((appliance) => (
                   <article className={`appliance-row ${appliance.id === leadingApplianceId ? "is-leading" : ""} ${appliance.provenance === "residual" ? "is-residual" : ""}`} key={appliance.id}>
                     <div className="appliance-row-top">
-                      {appliance.provenance === "residual"
-                        ? <strong className="appliance-name">{appliance.name}</strong>
-                        : <button className="appliance-link" onClick={() => setSelectedApplianceId(appliance.id)}>{appliance.name}</button>}
+                      <div className="appliance-title">
+                        {appliance.provenance === "residual"
+                          ? <strong className="appliance-name">{appliance.name} (not itemized)</strong>
+                          : <button className="appliance-link" onClick={() => setSelectedApplianceId(appliance.id)}>{appliance.name}</button>}
+                        {appliance.id === leadingApplianceId && <span className="largest-marker">Largest estimated load</span>}
+                        <span className={`appliance-status status-${appliance.status ?? "none"}`}>{applianceStatusLabel(appliance.status, appliance.provenance === "residual")}</span>
+                      </div>
                       <span className="appliance-share">{appliance.share_pct == null ? "—" : `${appliance.share_pct.toFixed(1)}%`}</span>
                     </div>
                     <div className="share-track" role="img" aria-label={`${appliance.share_pct == null ? "Unknown share" : `${appliance.share_pct.toFixed(1)} percent`} of estimated energy`}>
@@ -346,7 +432,7 @@ function App() {
                     </div>
                     <div className="appliance-row-values">
                       <span><small>Energy</small><strong>{formatKwh(appliance.kwh_period)}</strong></span>
-                      <span><small>Estimated cost</small><strong>{formatCurrency(appliance.cost_period_inr)}</strong></span>
+                      <span><small>Estimated cost contribution</small><strong>{formatCurrency(appliance.cost_period_inr)}</strong></span>
                       <span><small>Coverage</small><strong>{appliance.coverage_pct == null ? "—" : `${appliance.coverage_pct.toFixed(1)}%`}</strong></span>
                     </div>
                   </article>
@@ -372,23 +458,42 @@ function App() {
             </div>
             {analysis?.issues.length ? (
               <div className="insight-list">
-                {analysis.issues.map((issue) => (
-                  <article className="insight-item" key={issue.appliance_id}>
+                {analysis.issues.map((issue) => {
+                  const comparisonMax = Math.max(issue.current_kwh, issue.baseline_kwh, 0.01);
+                  return <article className="insight-item" key={issue.appliance_id}>
                     <div className="insight-copy">
                       <div className="recommendation-topline">
-                        <div><h3>{issue.appliance_name}</h3><p>{issue.driver_text ?? "The analysis identified an eligible change, but could not determine a usage driver."}</p></div>
-                        <div className="recommendation-savings"><small>Potential / month</small><strong>{formatCurrency(issue.savings.inr_per_month.low)}–{formatCurrency(issue.savings.inr_per_month.high)}</strong></div>
+                        <div><h3>{issue.appliance_name}</h3><p>{issue.driver_text ?? "Usage increased, but the available data could not identify a likely driver."}</p><small className="issue-basis">{issueBasisLabel(issue.basis)}</small></div>
+                        <div className="recommendation-savings">
+                          <small>Possible monthly savings</small>
+                          <div className="savings-range">
+                            <span><small>Low</small><strong>{formatCurrency(issue.savings.inr_per_month.low)}</strong></span>
+                            <span><small>Mid</small><strong>{formatCurrency(issue.savings.inr_per_month.mid)}</strong></span>
+                            <span><small>High</small><strong>{formatCurrency(issue.savings.inr_per_month.high)}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="issue-comparison" aria-label={`Estimated weekly usage comparison for ${issue.appliance_name}`}>
+                        <span className="comparison-unit">Estimated weekly energy (kWh)</span>
+                        <div className="usage-compare-bars">
+                          <div className="usage-compare-row"><span>Prior two-week baseline</span><strong>{formatKwh(issue.baseline_kwh)}</strong><div className="usage-bar"><span style={{ width: `${(issue.baseline_kwh / comparisonMax) * 100}%` }} /></div></div>
+                          <div className="usage-compare-row current"><span>Current week</span><strong>{formatKwh(issue.current_kwh)}</strong><div className="usage-bar"><span style={{ width: `${(issue.current_kwh / comparisonMax) * 100}%` }} /></div></div>
+                        </div>
+                        <small className="comparison-scale-note">Bars are scaled to the higher estimate in this comparison.</small>
+                        <div className="comparison-deltas">
+                          <div><small>Above baseline</small><strong>+{formatKwh(issue.excess_kwh_week)}</strong></div>
+                          <div><small>Change</small><strong>+{issue.change_pct.toFixed(1)}%</strong></div>
+                        </div>
                       </div>
                       <strong className="recommendation">{issue.recommendation.text}</strong>
-                      <small className="savings-label">{issue.savings.label}; an estimate, not a guaranteed saving.</small>
+                      <small className="savings-label">{issue.savings.label}. {issue.savings.illustrative ? "Illustrative estimate; not a real-model result or guaranteed saving." : "Estimate, not a guaranteed saving."}</small>
                       {issue.caveats.map((caveat) => <small className="caveat" key={caveat}>{caveat}</small>)}
                     </div>
-                  </article>
-                ))}
+                  </article>;
+                })}
               </div>
             ) : (
               <div className="empty-state insights-empty">
-                <span className="empty-glyph" aria-hidden="true">✳</span>
                 <strong>{analysis ? "No unusual use found." : "Recommendations appear after analysis"}</strong>
                 {!analysis && <p>Run an analysis to see actions tied to this sample’s results.</p>}
               </div>
@@ -409,9 +514,106 @@ function App() {
           </section>
         </div>
 
+        <section className="evidence-section" aria-label="Evidence and methodology">
+          <details className="evidence-disclosure">
+            <summary>
+              <span>Data & methodology</span>
+              <small>{analysis ? `${analysis.period.days}-day sample · bill rate · weekly comparison` : "How this analysis is calculated"}</small>
+            </summary>
+            <div className="evidence-content">
+              <div className="method-grid">
+                <article>
+                  <h3>Analysis period</h3>
+                  <p>{analysis
+                    ? `${analysis.period.days} days, split into two baseline weeks and one current week (${formatDate(analysis.period.start)} to ${formatPeriodEnd(analysis.period.end)}). The window uses full local days in Asia/Kolkata. Prepared sample dates set it; bill dates are reference only.`
+                    : "The prepared analysis uses a fixed 21-day window: two baseline weeks followed by one current week, using full local days in Asia/Kolkata. Prepared sample dates set it; bill dates are reference only."}</p>
+                </article>
+                <article>
+                  <h3>Bill rate and sample cost</h3>
+                  <p>{analysis
+                    ? `The bill amount (${formatCurrency(analysis.cost.bill_amount_inr)}) divided by billed units (${analysis.cost.bill_units_kwh.toLocaleString("en-IN")} kWh) gives an average rate of ₹${analysis.cost.effective_rate_inr_per_kwh.toFixed(2)}/kWh. Sample-period cost is estimated kWh × that rate, so it is not the bill total.`
+                    : "Your bill amount divided by billed units gives an average ₹/kWh rate. Estimated sample-period cost is sample kWh × that rate, not your bill total."} Fixed charges and tariff slabs are spread into this blended average; actual marginal cost can differ.</p>
+                </article>
+                <article>
+                  <h3>Where appliance traces come from</h3>
+                  {analysis ? <>
+                    <p>This prepared sample is {analysis.source.simulated ? "marked as simulated" : "marked as non-simulated"} by the analysis API. Appliance-level sources:</p>
+                    <ul className="source-list">{analysis.appliances.filter((appliance) => appliance.provenance !== "residual").map((appliance) => <li key={appliance.id}><strong>{appliance.name}</strong><span>{applianceSourceLabel(appliance.provenance)}</span></li>)}</ul>
+                    {analysis.appliances.some((appliance) => appliance.provenance === "residual") && <p>The remaining aggregate energy is grouped as “Other” because it is not itemized by an appliance.</p>}
+                    {analysis.source.simulated && <p className="method-callout">{analysis.source.description} Its appliance traces are not model predictions or household measurements.</p>}
+                  </> : <p>Prepared samples disclose their source here after analysis. Simulated traces are demonstration data, not household measurements or real-model predictions.</p>}
+                </article>
+                <article>
+                  <h3>How unusual use is flagged</h3>
+                  <p>The current week is compared with the median of the two preceding weeks for that appliance. A flag requires the increase to clear a threshold based on the appliance’s stated energy-estimation uncertainty and a minimum excess amount. Weeks without enough valid data, or with a very small baseline, are marked insufficient instead.</p>
+                  <p>Weather, season, occupancy, and holidays are not modeled. An unusual-use flag is a comparison with recent usage, not a diagnosis.</p>
+                </article>
+                <article>
+                  <h3>Possible savings</h3>
+                  <p>When shown, the range estimates possible savings if use returned to the recent baseline. It is a heuristic sensitivity range, not a calibrated confidence interval or a guarantee.</p>
+                </article>
+              </div>
+            </div>
+          </details>
+
+          <details className="evidence-disclosure evaluation-disclosure">
+            <summary>
+              <span>Model evaluation evidence</span>
+              <small>{evaluationLoading ? "Loading evaluation record" : evaluationError ? "Evidence unavailable" : evaluation ? evidenceLevelLabel(evaluation.evidence_level) : "Evidence unavailable"}</small>
+            </summary>
+            <div className="evidence-content">
+              {evaluationLoading && <p className="evidence-state" role="status">Loading the evaluation record…</p>}
+              {!evaluationLoading && evaluationError && <div className="evidence-state evidence-error" role="status"><strong>Evaluation evidence unavailable</strong><p>{evaluationError}</p></div>}
+              {!evaluationLoading && evaluation && <>
+                <div className="evaluation-overview">
+                  <div><span>Evidence level</span><strong>{evidenceLevelLabel(evaluation.evidence_level)}</strong></div>
+                  <div><span>Dataset</span><strong>{evaluation.dataset.name}</strong></div>
+                  <div><span>Generated</span><strong>{formatDate(evaluation.generated_at)}</strong></div>
+                </div>
+                {evaluation.dataset.audit_ref && <p className="evaluation-note">Dataset audit: {evaluation.dataset.audit_ref}</p>}
+                {evaluation.evidence_level === "none" && <div className="evidence-state"><strong>No real-data appliance model has been validated.</strong><p>{evaluation.no_evaluation_reason ?? "The artifact does not include a reason for the missing evaluation."}</p></div>}
+                {evaluation.evidence_level === "development_only" && <p className="evidence-state">Real-model results use development evidence only. They are not independent validation.</p>}
+                {evaluation.evidence_level === "independent_test" && <p className="evidence-state">Any GO results below were evaluated on held-out weeks from the same household. This does not establish performance in other homes.</p>}
+
+                <h3 className="evidence-subheading">Real-model candidates and decisions</h3>
+                {(health?.appliances ?? []).filter((item) => item.provenance === "real_model").length === 0 && Object.keys(evaluation.real).length === 0 && <p className="evaluation-note">No real-model candidates or evaluation records are listed by the available API responses.</p>}
+                {(health?.appliances ?? []).filter((item) => item.provenance === "real_model").map((item) => {
+                  const result = evaluation.real[item.id];
+                  const displayName = item.id.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+                  const status = result?.decision === "go"
+                    ? "Passed frozen GO criteria"
+                    : result?.decision === "no_go"
+                      ? "Evaluated · did not pass frozen GO criteria"
+                      : item.registry_status === "candidate"
+                        ? "Candidate · no GO decision recorded"
+                        : item.registry_status === "go"
+                          ? "Registry says GO · matching evaluation record unavailable"
+                          : "No GO decision recorded";
+                  return <article className="candidate-evidence" key={item.id}>
+                    <div className="candidate-heading"><strong>{displayName}</strong><span>{status}</span></div>
+                    {result ? <>
+                      <p className="evaluation-note">Evaluation split: {result.evaluated_on ?? "Unavailable"}; weeks recorded: {result.n_weeks ?? "Unavailable"}. Decision: {result.decision === "go" ? "GO" : "NO-GO"}.</p>
+                      {result.failed_criteria.length > 0 && <p className="evaluation-note">Failed criteria: {result.failed_criteria.join(", ")}</p>}
+                      <EvaluationMetricsTable model={result.model} naive={result.naive} />
+                    </> : <p className="evaluation-note">{item.registry_status === "candidate" ? "This registry candidate has not passed evaluation; no evaluation metrics are recorded." : "The evaluation artifact has no detailed record for this registry entry."}</p>}
+                  </article>;
+                })}
+                {Object.entries(evaluation.real).filter(([id]) => !(health?.appliances ?? []).some((item) => item.id === id)).map(([id, result]) => <article className="candidate-evidence" key={id}>
+                  <div className="candidate-heading"><strong>{id.replaceAll("_", " ")}</strong><span>{result.decision === "go" ? "Passed frozen GO criteria" : "Evaluated · did not pass frozen GO criteria"}</span></div>
+                  <EvaluationMetricsTable model={result.model} naive={result.naive} />
+                </article>)}
+
+                <h3 className="evidence-subheading">Synthetic demo pipeline checks</h3>
+                <p className="evaluation-note">These checks verify expected statuses in the simulated demo pipeline. They are not real-model accuracy or evaluation results.</p>
+                {evaluation.synthetic.pipeline_checks.length ? <ul className="pipeline-checks">{evaluation.synthetic.pipeline_checks.map((check, index) => <li key={`${check.sample_id}-${check.appliance_id}-${index}`}><strong>{check.appliance_id.replaceAll("_", " ")}</strong><span>{check.sample_id.replaceAll("_", " ")}: expected {check.expected_status}, observed {check.observed_status}</span></li>)}</ul> : <p className="evaluation-note">No synthetic pipeline checks are recorded.</p>}
+              </>}
+            </div>
+          </details>
+        </section>
+
         {analysis && (
           <footer className="evidence-footer">
-            <span>Analysis period: {formatDate(analysis.period.start)} – {formatDate(analysis.period.end)} ({analysis.period.days} days)</span>
+            <span>Analysis period: {formatDate(analysis.period.start)} – {formatPeriodEnd(analysis.period.end)} ({analysis.period.days} days)</span>
             <span>Coverage: {analysis.period.coverage_pct.toFixed(1)}%</span>
           </footer>
         )}
